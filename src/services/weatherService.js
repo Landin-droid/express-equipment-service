@@ -3,7 +3,7 @@ import {
   HttpError as WeatherHttpError,
   TimeoutError,
 } from "./weather/httpClient.js";
-import { HttpError } from "../errors/httpError.js";
+import { ServiceUnavailableError } from "../errors/ServiceUnavailableError.js";
 import { weatherConfig } from "../config/weatherConfig.js";
 
 function isSuitable(day) {
@@ -19,21 +19,18 @@ async function getForecastForLocation({ lat, lon }, days = 3) {
     forecast = await getForecast({ latitude: lat, longitude: lon, days });
   } catch (err) {
     if (err instanceof TimeoutError) {
-      throw new HttpError(
-        503,
+      throw new ServiceUnavailableError(
         "WEATHER_TIMEOUT",
         "Погодный сервис не ответил вовремя. Попробуйте позже.",
       );
     }
     if (err instanceof WeatherHttpError) {
-      throw new HttpError(
-        503,
+      throw new ServiceUnavailableError(
         "WEATHER_UNAVAILABLE",
         "Погодный сервис временно недоступен.",
       );
     }
-    throw new HttpError(
-      503,
+    throw new ServiceUnavailableError(
       "WEATHER_UNAVAILABLE",
       "Не удалось получить прогноз погоды.",
     );

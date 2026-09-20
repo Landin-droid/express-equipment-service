@@ -1,19 +1,18 @@
 import equipmentRepository from "../repositories/equipmentRepository.js";
 import requestService from "./requestService.js";
-import { HttpError } from "../errors/httpError.js";
+import { ConflictError } from "../errors/ConflictError.js";
+import { NotFoundError } from "../errors/NotFoundError.js";
 
 function assertExists(equipment, id) {
   if (!equipment) {
-    throw new HttpError(404, "NOT_FOUND", `Оборудование с id=${id} не найдено`);
+    throw new NotFoundError(`Оборудование с id=${id} не найдено`);
   }
 }
 
 function createEquipment(data) {
   const existing = equipmentRepository.findBySerialNumber(data.serialNumber);
   if (existing) {
-    throw new HttpError(
-      409,
-      "CONFLICT",
+    throw new ConflictError(
       `Оборудование с серийным номером "${data.serialNumber}" уже существует`,
     );
   }
@@ -43,9 +42,7 @@ function updateEquipment(id, patch) {
   if (patch.serialNumber && patch.serialNumber !== existing.serialNumber) {
     const clash = equipmentRepository.findBySerialNumber(patch.serialNumber);
     if (clash) {
-      throw new HttpError(
-        409,
-        "CONFLICT",
+      throw new ConflictError(
         `Серийный номер "${patch.serialNumber}" уже занят`,
       );
     }
@@ -59,9 +56,7 @@ function deleteEquipment(id) {
   assertExists(existing, id);
 
   if (requestService.hasOpenRequests(id)) {
-    throw new HttpError(
-      409,
-      "CONFLICT",
+    throw new ConflictError(
       "Нельзя удалить оборудование, по которому есть незакрытые заявки",
     );
   }

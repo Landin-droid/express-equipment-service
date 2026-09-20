@@ -1,80 +1,67 @@
 import requestService from "../services/requestService.js";
 import equipmentRepository from "../repositories/equipmentRepository.js";
 
-function create(req, res, next) {
-  try {
-    const request = requestService.createRequest(req.body, equipmentRepository);
-    res.status(201).location(`/api/requests/${request.id}`).json(request);
-  } catch (err) {
-    next(err);
-  }
+async function create(req, res) {
+  const request = requestService.createRequest(
+    req.valid.body,
+    equipmentRepository,
+  );
+  res.status(201).location(`/api/requests/${request.id}`).json(request);
 }
 
-function list(req, res, next) {
-  try {
-    const {
-      status,
-      priority,
-      equipmentId,
-      dateFrom,
-      dateTo,
-      sort,
-      page = 1,
-      limit = 20,
-    } = req.query;
-    const result = requestService.listRequests({
-      status,
-      priority,
-      equipmentId,
-      dateFrom,
-      dateTo,
-      sort,
-      page: Number(page),
-      limit: Number(limit),
-    });
-    res.status(200).json({
+async function list(req, res) {
+  const {
+    status,
+    priority,
+    equipmentId,
+    dateFrom,
+    dateTo,
+    sort,
+    page = 1,
+    limit = 20,
+  } = req.valid.query;
+  const result = requestService.listRequests({
+    status,
+    priority,
+    equipmentId,
+    dateFrom,
+    dateTo,
+    sort,
+    page,
+    limit,
+  });
+  res
+    .status(200)
+    .json({
       data: result.items,
       meta: { total: result.total, page: result.page, limit: result.limit },
     });
-  } catch (err) {
-    next(err);
-  }
 }
 
-function getById(req, res, next) {
-  try {
-    const request = requestService.getRequestById(req.params.id);
-    res.status(200).json(request);
-  } catch (err) {
-    next(err);
-  }
+async function getById(req, res) {
+  const request = requestService.getRequestById(req.valid.params.id);
+  res.status(200).json(request);
 }
 
-function update(req, res, next) {
-  try {
-    const request = requestService.updateRequest(req.params.id, req.body);
-    res.status(200).json(request);
-  } catch (err) {
-    next(err);
-  }
+async function update(req, res) {
+  const request = requestService.updateRequest(
+    req.valid.params.id,
+    req.valid.body,
+  );
+  res.status(200).json(request);
 }
 
-function changeStatus(req, res, next) {
-  try {
-    const request = requestService.changeStatus(req.params.id, req.body.status);
-    res.status(200).json(request);
-  } catch (err) {
-    next(err);
-  }
+async function changeStatus(req, res) {
+  const request = requestService.changeStatus(
+    req.valid.params.id,
+    req.valid.body.status,
+  );
+  res.status(200).json(request);
 }
 
-function remove(req, res, next) {
-  try {
-    requestService.deleteRequest(req.params.id);
-    res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
+async function remove(req, res) {
+  requestService.deleteRequest(req.valid.params.id);
+  res.status(204).send();
 }
 
 export default { create, list, getById, update, changeStatus, remove };
