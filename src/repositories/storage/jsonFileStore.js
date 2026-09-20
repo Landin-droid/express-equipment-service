@@ -2,7 +2,9 @@ import fs from "fs";
 import path from "path";
 
 export function createJsonFileStore(fileName) {
-  const dataDir = path.resolve("data");
+  const dataDir = path.resolve(
+    process.env.NODE_ENV === "test" ? "data/test" : "data",
+  );
   const filePath = path.join(dataDir, fileName);
 
   function ensureFile() {

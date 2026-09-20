@@ -57,6 +57,7 @@ function changeStatus(id, newStatus) {
   if (!canTransition(existing.status, newStatus)) {
     throw new ConflictError(
       `Переход из "${existing.status}" в "${newStatus}" недопустим`,
+      "INVALID_TRANSITION",
     );
   }
 
