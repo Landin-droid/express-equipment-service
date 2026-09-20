@@ -1,4 +1,5 @@
 import equipmentRepository from "../repositories/equipmentRepository.js";
+import requestService from "./requestService.js";
 import { HttpError } from "../errors/httpError.js";
 
 function assertExists(equipment, id) {
@@ -53,10 +54,17 @@ function updateEquipment(id, patch) {
   return equipmentRepository.update(id, patch);
 }
 
-// Улучшенная версия проверки будет создана после создания requestRepository 
 function deleteEquipment(id) {
   const existing = equipmentRepository.findById(id);
   assertExists(existing, id);
+
+  if (requestService.hasOpenRequests(id)) {
+    throw new HttpError(
+      409,
+      "CONFLICT",
+      "Нельзя удалить оборудование, по которому есть незакрытые заявки",
+    );
+  }
 
   return equipmentRepository.remove(id);
 }

@@ -1,4 +1,6 @@
 import equipmentService from "../services/equipmentService.js";
+import requestService from "../services/requestService.js";
+import weatherService from "../services/weatherService.js";
 
 function create(req, res, next) {
   try {
@@ -55,4 +57,40 @@ function remove(req, res, next) {
   }
 }
 
-export default { create, list, getById, update, remove };
+function getRequests(req, res, next) {
+  try {
+    equipmentService.getEquipmentById(req.params.id);
+    const requests = requestService.listByEquipmentId(req.params.id);
+    res.status(200).json({ data: requests, meta: { total: requests.length } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getWeather(req, res, next) {
+  try {
+    const equipment = equipmentService.getEquipmentById(req.params.id);
+    const days = req.query.days ? Number(req.query.days) : 3;
+    const forecast = await weatherService.getForecastForLocation(
+      equipment.location,
+      days,
+    );
+    res.status(200).json({
+      equipmentId: equipment.id,
+      location: equipment.location,
+      forecast,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export default {
+  create,
+  list,
+  getById,
+  update,
+  remove,
+  getWeather,
+  getRequests,
+};

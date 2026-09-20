@@ -9,6 +9,8 @@ router.get("/:id", equipmentController.getById);
 router.patch("/:id", equipmentController.update);
 router.delete("/:id", equipmentController.remove);
 
-// GET /api/equipment/:id/requests и /:id/weather будут добавлены в feat/requests-crud
+router.get("/:id/requests", equipmentController.getRequests);
+
+router.get("/:id/weather", equipmentController.getWeather);
 
 export default router;
