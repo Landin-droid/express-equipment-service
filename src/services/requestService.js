@@ -1,21 +1,20 @@
 import requestRepository from "../repositories/requestRepository.js";
-import { HttpError } from "../errors/httpError.js";
 import { canTransition } from "./statusTransitions.js";
+import { ConflictError } from "../errors/ConflictError.js";
+import { NotFoundError } from "../errors/NotFoundError.js";
 
 const OPEN_STATUSES = ["new", "in_progress"];
 
 function assertExists(request, id) {
   if (!request) {
-    throw new HttpError(404, "NOT_FOUND", `Заявка с id=${id} не найдена`);
+    throw new NotFoundError(`Заявка с id=${id} не найдена`);
   }
 }
 
 function createRequest(data, equipmentRepository) {
   const equipment = equipmentRepository.findById(data.equipmentId);
   if (!equipment) {
-    throw new HttpError(
-      404,
-      "NOT_FOUND",
+    throw new NotFoundError(
       `Оборудование с id=${data.equipmentId} не найдено`,
     );
   }
@@ -56,9 +55,7 @@ function changeStatus(id, newStatus) {
   assertExists(existing, id);
 
   if (!canTransition(existing.status, newStatus)) {
-    throw new HttpError(
-      409,
-      "INVALID_TRANSITION",
+    throw new ConflictError(
       `Переход из "${existing.status}" в "${newStatus}" недопустим`,
     );
   }
