@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<title>Заявки на обслуживание оборудования</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  .filters, .form-grid { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: end; margin-bottom: 1rem; }
+  .field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+  select, input, textarea, button { padding: 0.4rem 0.6rem; font-size: 0.9rem; border: 1px solid #ccc; border-radius: 4px; }
+  button { cursor: pointer; background: #2563eb; color: white; border: none; }
+  button:hover { background: #1d4ed8; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; font-size: 0.85rem; }
+  .badge { padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; color: white; }
+  .status-new { background: #6b7280; }
+  .status-in_progress { background: #2563eb; }
+  .status-done { background: #16a34a; }
+  .status-rejected { background: #dc2626; }
+  .error { color: #dc2626; font-size: 0.85rem; margin-top: 0.5rem; }
+  .success { color: #16a34a; font-size: 0.85rem; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+  <h1>Заявки на обслуживание оборудования</h1>
+
+  <h2>Фильтры</h2>
+  <div class="filters">
+    <div class="field">
+      <label for="filterStatus">Статус</label>
+      <select id="filterStatus">
+        <option value="">Все</option>
+        <option value="new">new</option>
+        <option value="in_progress">in_progress</option>
+        <option value="done">done</option>
+        <option value="rejected">rejected</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="filterPriority">Приоритет</label>
+      <select id="filterPriority">
+        <option value="">Все</option>
+        <option value="low">low</option>
+        <option value="medium">medium</option>
+        <option value="high">high</option>
+        <option value="critical">critical</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="filterEquipment">Оборудование</label>
+      <select id="filterEquipment"><option value="">Все</option></select>
+    </div>
+    <button id="applyFilters">Применить</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Заголовок</th><th>Оборудование</th><th>Приоритет</th><th>Статус</th><th>Действие</th></tr>
+    </thead>
+    <tbody id="requestsBody"></tbody>
+  </table>
+  <div id="listError" class="error"></div>
+
+  <h2>Новая заявка</h2>
+  <div class="form-grid">
+    <div class="field">
+      <label for="newEquipment">Оборудование *</label>
+      <select id="newEquipment"></select>
+    </div>
+    <div class="field">
+      <label for="newTitle">Заголовок *</label>
+      <input id="newTitle" placeholder="5–120 символов" />
+    </div>
+    <div class="field">
+      <label for="newPriority">Приоритет *</label>
+      <select id="newPriority">
+        <option value="low">low</option>
+        <option value="medium" selected>medium</option>
+        <option value="high">high</option>
+        <option value="critical">critical</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="newDescription">Описание</label>
+      <textarea id="newDescription" rows="1" placeholder="до 2000 символов"></textarea>
+    </div>
+    <button id="createBtn">Создать заявку</button>
+  </div>
+  <div id="formError" class="error"></div>
+  <div id="formSuccess" class="success"></div>
+
+<script>
+  const API_BASE = ''; // страница отдаётся тем же сервером — относительные пути, CORS не нужен
+
+  async function fetchJson(url, options) {
+    const res = await fetch(url, options);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = body?.error?.message || `Ошибка ${res.status}`;
+      throw new Error(message);
+    }
+    return body;
+  }
+
+  async function loadEquipmentOptions() {
+    const { data } = await fetchJson(`${API_BASE}/api/equipment?limit=100`);
+    const options = data.map((e) => `<option value="${e.id}">${e.name} (${e.serialNumber})</option>`).join('');
+    document.getElementById('filterEquipment').insertAdjacentHTML('beforeend', options);
+    document.getElementById('newEquipment').innerHTML = options;
+    return data;
+  }
+
+  function statusBadge(status) {
+    return `<span class="badge status-${status}">${status}</span>`;
+  }
+
+  async function loadRequests() {
+    const listError = document.getElementById('listError');
+    listError.textContent = '';
+
+    const status = document.getElementById('filterStatus').value;
+    const priority = document.getElementById('filterPriority').value;
+    const equipmentId = document.getElementById('filterEquipment').value;
+
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (priority) params.set('priority', priority);
+    if (equipmentId) params.set('equipmentId', equipmentId);
+
+    try {
+      const { data } = await fetchJson(`${API_BASE}/api/requests?${params.toString()}`);
+      const tbody = document.getElementById('requestsBody');
+
+      if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5">Заявок не найдено</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.map((r) => `
+        <tr>
+          <td>${r.title}</td>
+          <td>${r.equipmentId}</td>
+          <td>${r.priority}</td>
+          <td>${statusBadge(r.status)}</td>
+          <td>${nextActionButton(r)}</td>
+        </tr>
+      `).join('');
+
+      tbody.querySelectorAll('[data-transition]').forEach((btn) => {
+        btn.addEventListener('click', () => changeStatus(btn.dataset.id, btn.dataset.transition));
+      });
+    } catch (err) {
+      listError.textContent = err.message;
+    }
+  }
+
+  function nextActionButton(r) {
+    const nextStatus = { new: 'in_progress', in_progress: 'done' }[r.status];
+    if (!nextStatus) return '—';
+    return `<button data-id="${r.id}" data-transition="${nextStatus}">→ ${nextStatus}</button>`;
+  }
+
+  async function changeStatus(id, status) {
+    try {
+      await fetchJson(`${API_BASE}/api/requests/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      await loadRequests();
+    } catch (err) {
+      document.getElementById('listError').textContent = err.message;
+    }
+  }
+
+  async function createRequest() {
+    const formError = document.getElementById('formError');
+    const formSuccess = document.getElementById('formSuccess');
+    formError.textContent = '';
+    formSuccess.textContent = '';
+
+    const payload = {
+      equipmentId: document.getElementById('newEquipment').value,
+      title: document.getElementById('newTitle').value,
+      priority: document.getElementById('newPriority').value,
+      description: document.getElementById('newDescription').value || undefined,
+    };
+
+    try {
+      await fetchJson(`${API_BASE}/api/requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      formSuccess.textContent = 'Заявка создана';
+      document.getElementById('newTitle').value = '';
+      document.getElementById('newDescription').value = '';
+      await loadRequests();
+    } catch (err) {
+      formError.textContent = err.message;
+    }
+  }
+
+  document.getElementById('applyFilters').addEventListener('click', loadRequests);
+  document.getElementById('createBtn').addEventListener('click', createRequest);
+
+  (async () => {
+    await loadEquipmentOptions();
+    await loadRequests();
+  })();
+</script>
+</body>
+</html>
