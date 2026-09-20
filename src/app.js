@@ -1,5 +1,6 @@
 import express from "express";
 import equipmentRoutes from "./routes/equipmentRoutes.js";
+import requestRoutes from "./routes/requestRoutes.js";
 
 const app = express();
 
@@ -10,6 +11,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/equipment", equipmentRoutes);
+app.use("/api/requests", requestRoutes);
 
 // Временный error handler. Будет заменён в feat/validation-errors
 // на полноценный формат { error: { code, message, details, requestId } }.
