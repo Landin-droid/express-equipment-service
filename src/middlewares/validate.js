@@ -1,18 +1,19 @@
 import { ValidationError } from "../errors/ValidationError.js";
 
-export function validate(schema, source = "body") {
+export function validate(schemas) {
   return (req, res, next) => {
-    const result = schema.safeParse(req[source]);
+    req.valid = {};
 
-    if (!result.success) {
-      const details = result.error.issues.map((issue) => ({
-        field: issue.path.join(".") || source,
-        message: issue.message,
-      }));
-      return next(new ValidationError("Некорректные данные запроса", details));
+    for (const part of ["body", "query", "params"]) {
+      if (!schemas[part]) continue;
+
+      const result = schemas[part].safeParse(req[part]);
+      if (!result.success) {
+        return next(new ValidationError(result.error));
+      }
+      req.valid[part] = result.data;
     }
 
-    req[source] = result.data;
     next();
   };
 }

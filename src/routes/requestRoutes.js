@@ -13,34 +13,32 @@ const router = Router();
 
 router.get(
   "/",
-  validate(listRequestsQuerySchema, "query"),
+  validate({ query: listRequestsQuerySchema }),
   requestController.list,
 );
 router.post(
   "/",
-  validate(createRequestSchema, "body"),
+  validate({ body: createRequestSchema }),
   requestController.create,
 );
 router.get(
   "/:id",
-  validate(idParamSchema, "params"),
+  validate({ params: idParamSchema }),
   requestController.getById,
 );
 router.patch(
   "/:id",
-  validate(idParamSchema, "params"),
-  validate(updateRequestSchema, "body"),
+  validate({ params: idParamSchema, body: updateRequestSchema }),
   requestController.update,
 );
 router.patch(
   "/:id/status",
-  validate(idParamSchema, "params"),
-  validate(changeStatusSchema, "body"),
+  validate({ params: idParamSchema, body: changeStatusSchema }),
   requestController.changeStatus,
 );
 router.delete(
   "/:id",
-  validate(idParamSchema, "params"),
+  validate({ params: idParamSchema }),
   requestController.remove,
 );
 

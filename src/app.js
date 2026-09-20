@@ -1,10 +1,19 @@
 import express from "express";
+import morgan from "morgan";
+import { requestId } from "./middlewares/requestId.js";
+import { notFoundHandler } from "./middlewares/notFoundHandler.js";
+import { errorHandler } from "./middlewares/errorHandler.js";
 import equipmentRoutes from "./routes/equipmentRoutes.js";
 import requestRoutes from "./routes/requestRoutes.js";
 
 const app = express();
 
-app.use(express.json());
+app.use(requestId);
+
+morgan.token("id", (req) => req.requestId);
+app.use(morgan(":id :method :url :status :response-time ms"));
+
+app.use(express.json({ limit: "100kb" }));
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok" });
@@ -13,16 +22,8 @@ app.get("/api/health", (req, res) => {
 app.use("/api/equipment", equipmentRoutes);
 app.use("/api/requests", requestRoutes);
 
-// Временный error handler. Будет заменён в feat/validation-errors
-// на полноценный формат { error: { code, message, details, requestId } }.
-app.use((err, req, res, next) => {
-  const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
-    error: {
-      code: err.code || "INTERNAL_ERROR",
-      message: err.message || "Внутренняя ошибка сервера",
-    },
-  });
-});
+app.use(notFoundHandler);
+
+app.use(errorHandler);
 
 export default app;

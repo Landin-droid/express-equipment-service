@@ -2,7 +2,10 @@ import requestService from "../services/requestService.js";
 import equipmentRepository from "../repositories/equipmentRepository.js";
 
 async function create(req, res) {
-  const request = requestService.createRequest(req.body, equipmentRepository);
+  const request = requestService.createRequest(
+    req.valid.body,
+    equipmentRepository,
+  );
   res.status(201).location(`/api/requests/${request.id}`).json(request);
 }
 
@@ -16,7 +19,7 @@ async function list(req, res) {
     sort,
     page = 1,
     limit = 20,
-  } = req.query;
+  } = req.valid.query;
   const result = requestService.listRequests({
     status,
     priority,
@@ -24,32 +27,40 @@ async function list(req, res) {
     dateFrom,
     dateTo,
     sort,
-    page: Number(page),
-    limit: Number(limit),
+    page,
+    limit,
   });
-  res.status(200).json({
-    data: result.items,
-    meta: { total: result.total, page: result.page, limit: result.limit },
-  });
+  res
+    .status(200)
+    .json({
+      data: result.items,
+      meta: { total: result.total, page: result.page, limit: result.limit },
+    });
 }
 
 async function getById(req, res) {
-  const request = requestService.getRequestById(req.params.id);
+  const request = requestService.getRequestById(req.valid.params.id);
   res.status(200).json(request);
 }
 
 async function update(req, res) {
-  const request = requestService.updateRequest(req.params.id, req.body);
+  const request = requestService.updateRequest(
+    req.valid.params.id,
+    req.valid.body,
+  );
   res.status(200).json(request);
 }
 
 async function changeStatus(req, res) {
-  const request = requestService.changeStatus(req.params.id, req.body.status);
+  const request = requestService.changeStatus(
+    req.valid.params.id,
+    req.valid.body.status,
+  );
   res.status(200).json(request);
 }
 
 async function remove(req, res) {
-  requestService.deleteRequest(req.params.id);
+  requestService.deleteRequest(req.valid.params.id);
   res.status(204).send();
 }
 

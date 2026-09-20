@@ -12,40 +12,37 @@ const router = Router();
 
 router.get(
   "/",
-  validate(listEquipmentQuerySchema, "query"),
+  validate({ query: listEquipmentQuerySchema }),
   equipmentController.list,
 );
 router.post(
   "/",
-  validate(createEquipmentSchema, "body"),
+  validate({ body: createEquipmentSchema }),
   equipmentController.create,
 );
 router.get(
   "/:id",
-  validate(idParamSchema, "params"),
+  validate({ params: idParamSchema }),
   equipmentController.getById,
 );
 router.patch(
   "/:id",
-  validate(idParamSchema, "params"),
-  validate(updateEquipmentSchema, "body"),
+  validate({ params: idParamSchema, body: updateEquipmentSchema }),
   equipmentController.update,
 );
 router.delete(
   "/:id",
-  validate(idParamSchema, "params"),
+  validate({ params: idParamSchema }),
   equipmentController.remove,
 );
-
 router.get(
   "/:id/requests",
-  validate(idParamSchema, "params"),
+  validate({ params: idParamSchema }),
   equipmentController.getRequests,
 );
-
 router.get(
   "/:id/weather",
-  validate(idParamSchema, "params"),
+  validate({ params: idParamSchema }),
   equipmentController.getWeather,
 );
 
