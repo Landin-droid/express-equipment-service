@@ -32,6 +32,7 @@ describe("GET /api/equipment/:id/weather", () => {
   beforeAll(async () => {
     const res = await request(app)
       .post("/api/equipment")
+      .set("X-API-Key", "test-api-key")
       .send({
         name: "Weather Test Equipment",
         type: "sensor",
