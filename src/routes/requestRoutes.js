@@ -6,6 +6,7 @@ import {
   updateRequestSchema,
   changeStatusSchema,
   listRequestsQuerySchema,
+  bulkCreateRequestSchema,
 } from "../validators/requestValidators.js";
 import { idParamSchema } from "../validators/equipmentValidators.js";
 import { apiKeyAuth } from "../middlewares/apiKeyAuth.js";
@@ -45,6 +46,12 @@ router.delete(
   apiKeyAuth,
   validate({ params: idParamSchema }),
   requestController.remove,
+);
+router.post(
+  "/bulk",
+  apiKeyAuth,
+  validate({ body: bulkCreateRequestSchema }),
+  requestController.bulkCreate,
 );
 
 export default router;
