@@ -32,3 +32,10 @@ export const listRequestsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
+
+export const bulkCreateRequestSchema = z.object({
+  items: z
+    .array(createRequestSchema)
+    .min(1)
+    .max(50, "Максимум 50 записей за один импорт"),
+});

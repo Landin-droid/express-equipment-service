@@ -2,6 +2,7 @@ import requestRepository from "../repositories/requestRepository.js";
 import { canTransition } from "./statusTransitions.js";
 import { ConflictError } from "../errors/ConflictError.js";
 import { NotFoundError } from "../errors/NotFoundError.js";
+import { createRequestSchema } from "../validators/requestValidators.js";
 
 const OPEN_STATUSES = ["new", "in_progress"];
 
@@ -76,6 +77,44 @@ function hasOpenRequests(equipmentId) {
     .some((r) => OPEN_STATUSES.includes(r.status));
 }
 
+function bulkCreateRequests(items, equipmentRepo) {
+  return items.map((rawItem, index) => {
+    const parsed = createRequestSchema.safeParse(rawItem);
+
+    if (!parsed.success) {
+      return {
+        index,
+        success: false,
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Некорректные данные записи",
+          details: parsed.error.issues.map((issue) => ({
+            field: issue.path.join(".") || "(root)",
+            message: issue.message,
+          })),
+        },
+      };
+    }
+
+    const equipment = equipmentRepo.findById(parsed.data.equipmentId);
+    if (!equipment) {
+      return {
+        index,
+        success: false,
+        error: {
+          code: "NOT_FOUND",
+          message: `Оборудование с id=${parsed.data.equipmentId} не найдено`,
+        },
+      };
+    }
+
+    const { status, ...rest } = parsed.data;
+    const created = requestRepository.create(rest);
+
+    return { index, success: true, data: created };
+  });
+}
+
 export default {
   createRequest,
   listRequests,
@@ -85,4 +124,5 @@ export default {
   changeStatus,
   deleteRequest,
   hasOpenRequests,
+  bulkCreateRequests,
 };
