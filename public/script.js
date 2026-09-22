@@ -1,7 +1,19 @@
 const API_BASE = "";
 
-async function fetchJson(url, options) {
-  const res = await fetch(url, options);
+const apiKeyInput = document.getElementById("apiKeyInput");
+
+apiKeyInput.value = localStorage.getItem("apiKey") || "";
+
+apiKeyInput.addEventListener("change", () => {
+  localStorage.setItem("apiKey", apiKeyInput.value);
+});
+
+async function fetchJson(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.method && options.method !== "GET") {
+    headers["X-API-Key"] = apiKeyInput.value;
+  }
+  const res = await fetch(url, { ...options, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const message = body?.error?.message || `Ошибка ${res.status}`;
