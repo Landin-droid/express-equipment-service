@@ -8,6 +8,7 @@ import {
   listRequestsQuerySchema,
 } from "../validators/requestValidators.js";
 import { idParamSchema } from "../validators/equipmentValidators.js";
+import { apiKeyAuth } from "../middlewares/apiKeyAuth.js";
 
 const router = Router();
 
@@ -18,6 +19,7 @@ router.get(
 );
 router.post(
   "/",
+  apiKeyAuth,
   validate({ body: createRequestSchema }),
   requestController.create,
 );
@@ -28,16 +30,19 @@ router.get(
 );
 router.patch(
   "/:id",
+  apiKeyAuth,
   validate({ params: idParamSchema, body: updateRequestSchema }),
   requestController.update,
 );
 router.patch(
   "/:id/status",
+  apiKeyAuth,
   validate({ params: idParamSchema, body: changeStatusSchema }),
   requestController.changeStatus,
 );
 router.delete(
   "/:id",
+  apiKeyAuth,
   validate({ params: idParamSchema }),
   requestController.remove,
 );

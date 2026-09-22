@@ -7,6 +7,7 @@ import {
   listEquipmentQuerySchema,
   idParamSchema,
 } from "../validators/equipmentValidators.js";
+import { apiKeyAuth } from "../middlewares/apiKeyAuth.js";
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.get(
 );
 router.post(
   "/",
+  apiKeyAuth,
   validate({ body: createEquipmentSchema }),
   equipmentController.create,
 );
@@ -27,11 +29,13 @@ router.get(
 );
 router.patch(
   "/:id",
+  apiKeyAuth,
   validate({ params: idParamSchema, body: updateEquipmentSchema }),
   equipmentController.update,
 );
 router.delete(
   "/:id",
+  apiKeyAuth,
   validate({ params: idParamSchema }),
   equipmentController.remove,
 );
