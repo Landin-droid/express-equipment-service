@@ -23,6 +23,8 @@ app.use(morgan(":id :method :url :status :response-time ms"));
 
 app.use(express.json({ limit: "100kb" }));
 
+app.use(express.static("public"));
+
 app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok" });
 });
