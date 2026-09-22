@@ -19,7 +19,7 @@ describe("Equipment CRUD", () => {
 
   it("POST /api/equipment creates equipment and returns 201 with Location header", async () => {
     const payload = makeEquipmentPayload();
-    const res = await request(app).post("/api/equipment").send(payload);
+    const res = await request(app).post("/api/equipment").set('X-API-Key', 'test-api-key').send(payload);
 
     expect(res.status).toBe(201);
     expect(res.headers.location).toBe(`/api/equipment/${res.body.id}`);
@@ -33,6 +33,7 @@ describe("Equipment CRUD", () => {
   it("POST /api/equipment with missing required fields returns 422 with details", async () => {
     const res = await request(app)
       .post("/api/equipment")
+      .set("X-API-Key", "test-api-key")
       .send({ type: "turbine" });
 
     expect(res.status).toBe(422);
@@ -45,6 +46,7 @@ describe("Equipment CRUD", () => {
   it("POST /api/equipment with duplicate serialNumber returns 409", async () => {
     const res = await request(app)
       .post("/api/equipment")
+      .set("X-API-Key", "test-api-key")
       .send(makeEquipmentPayload({ serialNumber: createdSerialNumber }));
 
     expect(res.status).toBe(409);
@@ -73,6 +75,7 @@ describe("Equipment CRUD", () => {
   it("PATCH /api/equipment/:id updates status", async () => {
     const res = await request(app)
       .patch(`/api/equipment/${createdId}`)
+      .set("X-API-Key", "test-api-key")
       .send({ status: "maintenance" });
 
     expect(res.status).toBe(200);
@@ -95,7 +98,9 @@ describe("Equipment CRUD", () => {
   });
 
   it("DELETE /api/equipment/:id removes equipment without open requests", async () => {
-    const res = await request(app).delete(`/api/equipment/${createdId}`);
+    const res = await request(app)
+      .delete(`/api/equipment/${createdId}`)
+      .set("X-API-Key", "test-api-key");
     expect(res.status).toBe(204);
 
     const getRes = await request(app).get(`/api/equipment/${createdId}`);

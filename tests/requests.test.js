@@ -4,6 +4,7 @@ import app from "../src/app.js";
 async function createEquipment() {
   const res = await request(app)
     .post("/api/equipment")
+    .set("X-API-Key", "test-api-key")
     .send({
       name: "Equipment For Requests",
       type: "sensor",
@@ -24,11 +25,14 @@ describe("Maintenance Requests", () => {
   });
 
   it('POST /api/requests creates request with default status "new"', async () => {
-    const res = await request(app).post("/api/requests").send({
-      equipmentId,
-      title: "Замена подшипника",
-      priority: "high",
-    });
+    const res = await request(app)
+      .post("/api/requests")
+      .set("X-API-Key", "test-api-key")
+      .send({
+        equipmentId,
+        title: "Замена подшипника",
+        priority: "high",
+      });
 
     expect(res.status).toBe(201);
     expect(res.body.status).toBe("new");
@@ -36,27 +40,34 @@ describe("Maintenance Requests", () => {
   });
 
   it("status field in body is ignored on create (always starts as new)", async () => {
-    const res = await request(app).post("/api/requests").send({
-      equipmentId,
-      title: "Проверка игнорирования статуса",
-      priority: "low",
-      status: "done",
-    });
+    const res = await request(app)
+      .post("/api/requests")
+      .set("X-API-Key", "test-api-key")
+      .send({
+        equipmentId,
+        title: "Проверка игнорирования статуса",
+        priority: "low",
+        status: "done",
+      });
 
     expect(res.status).toBe(201);
     expect(res.body.status).toBe("new");
     
     await request(app)
       .patch(`/api/requests/${res.body.id}/status`)
+      .set("X-API-Key", "test-api-key")
       .send({ status: "rejected" });
   });
 
   it("POST /api/requests with nonexistent equipmentId returns 404", async () => {
-    const res = await request(app).post("/api/requests").send({
-      equipmentId: "00000000-0000-4000-8000-000000000000",
-      title: "Заявка в никуда",
-      priority: "low",
-    });
+    const res = await request(app)
+      .post("/api/requests")
+      .set("X-API-Key", "test-api-key")
+      .send({
+        equipmentId: "00000000-0000-4000-8000-000000000000",
+        title: "Заявка в никуда",
+        priority: "low",
+      });
 
     expect(res.status).toBe(404);
   });
@@ -72,6 +83,7 @@ describe("Maintenance Requests", () => {
   it("PATCH /api/requests/:id (regular) does not change status", async () => {
     const res = await request(app)
       .patch(`/api/requests/${requestId}`)
+      .set("X-API-Key", "test-api-key")
       .send({ title: "Обновлённый заголовок", status: "done" });
 
     expect(res.status).toBe(200);
@@ -82,6 +94,7 @@ describe("Maintenance Requests", () => {
   it("PATCH /api/requests/:id/status allows valid transition new -> in_progress", async () => {
     const res = await request(app)
       .patch(`/api/requests/${requestId}/status`)
+      .set("X-API-Key", "test-api-key")
       .send({ status: "in_progress" });
 
     expect(res.status).toBe(200);
@@ -91,6 +104,7 @@ describe("Maintenance Requests", () => {
   it("PATCH /api/requests/:id/status rejects invalid transition in_progress -> new", async () => {
     const res = await request(app)
       .patch(`/api/requests/${requestId}/status`)
+      .set("X-API-Key", "test-api-key")
       .send({ status: "new" });
 
     expect(res.status).toBe(409);
@@ -98,7 +112,9 @@ describe("Maintenance Requests", () => {
   });
 
   it("DELETE /api/equipment/:id is blocked while request is open", async () => {
-    const res = await request(app).delete(`/api/equipment/${equipmentId}`);
+    const res = await request(app)
+      .delete(`/api/equipment/${equipmentId}`)
+      .set("X-API-Key", "test-api-key");
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("CONFLICT");
   });
@@ -106,6 +122,7 @@ describe("Maintenance Requests", () => {
   it("PATCH /api/requests/:id/status allows in_progress -> done, closing it", async () => {
     const res = await request(app)
       .patch(`/api/requests/${requestId}/status`)
+      .set("X-API-Key", "test-api-key")
       .send({ status: "done" });
 
     expect(res.status).toBe(200);
@@ -113,7 +130,9 @@ describe("Maintenance Requests", () => {
   });
 
   it("DELETE /api/equipment/:id now succeeds (no open requests left)", async () => {
-    const res = await request(app).delete(`/api/equipment/${equipmentId}`);
+    const res = await request(app)
+      .delete(`/api/equipment/${equipmentId}`)
+      .set("X-API-Key", "test-api-key");
     expect(res.status).toBe(204);
   });
 });
