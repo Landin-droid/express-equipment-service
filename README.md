@@ -318,6 +318,11 @@ docs/postman/           # экспортированная Postman-коллек�
 Dockerfile, docker-compose.yml
 ```
 
+## Особенности реализации на Express 5
+ 
+- Async-обработчики в Express 5 автоматически передают отклонённые промисы в error-handler (эквивалент `next(err)`), поэтому кастомный `asyncHandler`/`express-async-errors` не используется — все контроллеры представляют собой простые `async function`.
+- `req.query` в Express 5 — read-only геттер. Результат валидации query-параметров кладётся не обратно в `req.query`, а в `req.valid.query`; из соображений единообразия то же самое сделано и для `req.valid.body`/`req.valid.params`.
+
 ## Тестирование
 
 ### Postman
