@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+const EQUIPMENT_SORT_FIELDS = [
+  "name",
+  "type",
+  "status",
+  "installedAt",
+  "createdAt",
+];
 const equipmentTypes = ["turbine", "inverter", "sensor", "substation"];
 const equipmentStatuses = [
   "operational",
@@ -23,21 +30,32 @@ const notFutureDate = z
     },
   );
 
-export const createEquipmentSchema = z.object({
+const baseEquipmentSchema = z.object({
   name: z.string().min(3).max(100),
   type: z.enum(equipmentTypes),
   serialNumber: z.string().min(1),
-  location: locationSchema,
+  siteId: z.string().uuid().optional(),
+  location: locationSchema.optional(),
   status: z.enum(equipmentStatuses),
   installedAt: notFutureDate,
 });
 
-export const updateEquipmentSchema = createEquipmentSchema.partial();
+export const createEquipmentSchema = baseEquipmentSchema.refine(
+  (data) => data.siteId || data.location,
+  { message: "Укажите siteId или location", path: ["siteId"] },
+);
+
+export const updateEquipmentSchema = baseEquipmentSchema.partial();
 
 export const listEquipmentQuerySchema = z.object({
   type: z.enum(equipmentTypes).optional(),
   status: z.enum(equipmentStatuses).optional(),
-  sort: z.string().optional(),
+  sort: z
+    .enum([
+      ...EQUIPMENT_SORT_FIELDS,
+      ...EQUIPMENT_SORT_FIELDS.map((f) => `-${f}`),
+    ])
+    .optional(),
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
