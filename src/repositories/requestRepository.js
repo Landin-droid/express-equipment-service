@@ -1,85 +1,230 @@
-import { randomUUID } from "crypto";
-import { createJsonFileStore } from "./storage/jsonFileStore.js";
+import { Op, ForeignKeyConstraintError } from "sequelize";
+import {
+  sequelize,
+  MaintenanceRequest,
+  RequestStatusHistory,
+  RequestAssignee,
+} from "../models/index.js";
+import { resolveTechnicianId } from "./systemTechnician.js";
+import { NotFoundError } from "../errors/NotFoundError.js";
+import { ConflictError } from "../errors/ConflictError.js";
+import { canTransition } from "../services/statusTransitions.js";
 
-const store = createJsonFileStore("requests.json");
-let requests = store.load();
+const REQUEST_ATTRIBUTES = [
+  "id",
+  "equipmentId",
+  "createdBy",
+  "title",
+  "description",
+  "priority",
+  "status",
+  "plannedAt",
+  "createdAt",
+  "updatedAt",
+];
+const ASSIGNEE_INCLUDE = {
+  association: "assignees",
+  attributes: ["id", "firstName", "lastName", "specialization"],
+  through: { attributes: ["role", "plannedHours"] },
+};
 
-function persist() {
-  store.save(requests);
-}
-
-function create(data) {
-  const id = randomUUID();
-  const now = new Date().toISOString();
-  const entity = {
-    id,
-    status: "new",
-    ...data,
-    createdAt: now,
-    updatedAt: now,
+function toApiShape(instance, { withAssignees = false } = {}) {
+  const plain = instance.get({ plain: true });
+  const shape = {
+    id: plain.id,
+    equipmentId: plain.equipmentId,
+    createdBy: plain.createdBy,
+    title: plain.title,
+    description: plain.description,
+    priority: plain.priority,
+    status: plain.status,
+    plannedAt: plain.plannedAt,
+    createdAt: plain.createdAt,
+    updatedAt: plain.updatedAt,
   };
-  requests.push(entity);
-  persist();
-  return entity;
+  if (withAssignees) {
+    shape.assignees = (plain.assignees || []).map((a) => ({
+      id: a.id,
+      firstName: a.firstName,
+      lastName: a.lastName,
+      specialization: a.specialization,
+      role: a.RequestAssignee?.role,
+      plannedHours: a.RequestAssignee?.plannedHours,
+    }));
+  }
+  return shape;
 }
 
-function findById(id) {
-  return requests.find((r) => r.id === id) ?? null;
+function foreignKeyErrorMessage(err) {
+  const column = err.fields ? Object.keys(err.fields)[0] : null;
+  if (column === "equipment_id") return "Оборудование не найдено";
+  if (column === "created_by" || column === "changed_by")
+    return "Указанный специалист не найден";
+  return "Связанная запись не найдена";
 }
 
-function findByEquipmentId(equipmentId) {
-  return requests.filter((r) => r.equipmentId === equipmentId);
+async function create(data) {
+  const createdBy = await resolveTechnicianId(data.createdBy);
+
+  try {
+    const created = await sequelize.transaction(async (t) => {
+      const request = await MaintenanceRequest.create(
+        {
+          equipmentId: data.equipmentId,
+          createdBy,
+          title: data.title,
+          description: data.description,
+          priority: data.priority,
+          plannedAt: data.plannedAt,
+        },
+        { transaction: t },
+      );
+
+      await RequestStatusHistory.create(
+        {
+          requestId: request.id,
+          changedBy: createdBy,
+          oldStatus: null,
+          newStatus: "new",
+          comment: "Заявка создана",
+        },
+        { transaction: t },
+      );
+
+      return request;
+    });
+
+    return findById(created.id);
+  } catch (err) {
+    if (err instanceof ForeignKeyConstraintError) {
+      throw new NotFoundError(foreignKeyErrorMessage(err));
+    }
+    throw err;
+  }
 }
 
-function findAll({ filters = {}, sort, page = 1, limit = 20 } = {}) {
-  let items = [...requests];
+async function findById(id) {
+  const request = await MaintenanceRequest.findByPk(id, {
+    attributes: REQUEST_ATTRIBUTES,
+    include: [ASSIGNEE_INCLUDE],
+  });
+  return request ? toApiShape(request, { withAssignees: true }) : null;
+}
 
-  if (filters.status) items = items.filter((r) => r.status === filters.status);
-  if (filters.priority)
-    items = items.filter((r) => r.priority === filters.priority);
-  if (filters.equipmentId)
-    items = items.filter((r) => r.equipmentId === filters.equipmentId);
-  if (filters.dateFrom)
-    items = items.filter((r) => r.createdAt >= filters.dateFrom);
-  if (filters.dateTo)
-    items = items.filter((r) => r.createdAt <= filters.dateTo);
+async function findByEquipmentId(equipmentId) {
+  const requests = await MaintenanceRequest.findAll({
+    where: { equipmentId },
+    attributes: REQUEST_ATTRIBUTES,
+    include: [ASSIGNEE_INCLUDE],
+    order: [["createdAt", "DESC"]],
+  });
+  return requests.map((r) => toApiShape(r, { withAssignees: true }));
+}
 
-  if (sort) {
-    const [field, direction] = sort.startsWith("-")
-      ? [sort.slice(1), -1]
-      : [sort, 1];
-    items.sort((a, b) =>
-      a[field] > b[field] ? direction : a[field] < b[field] ? -direction : 0,
-    );
+async function findAll({ filters = {}, sort, page = 1, limit = 20 } = {}) {
+  const where = {};
+  if (filters.status) where.status = filters.status;
+  if (filters.priority) where.priority = filters.priority;
+  if (filters.equipmentId) where.equipmentId = filters.equipmentId;
+  if (filters.dateFrom || filters.dateTo) {
+    where.createdAt = {};
+    if (filters.dateFrom) where.createdAt[Op.gte] = filters.dateFrom;
+    if (filters.dateTo) where.createdAt[Op.lte] = filters.dateTo;
   }
 
-  const total = items.length;
-  const start = (page - 1) * limit;
-  const paged = items.slice(start, start + limit);
+  const order = sort
+    ? [[sort.replace(/^-/, ""), sort.startsWith("-") ? "DESC" : "ASC"]]
+    : [["createdAt", "DESC"]];
 
-  return { items: paged, total, page, limit };
+  const { rows, count } = await MaintenanceRequest.findAndCountAll({
+    where,
+    order,
+    limit,
+    offset: (page - 1) * limit,
+    attributes: REQUEST_ATTRIBUTES,
+  });
+
+  return { items: rows.map((r) => toApiShape(r)), total: count, page, limit };
 }
 
-function update(id, patch) {
-  const idx = requests.findIndex((r) => r.id === id);
-  if (idx === -1) return null;
-  const updated = {
-    ...requests[idx],
-    ...patch,
-    id: requests[idx].id,
-    updatedAt: new Date().toISOString(),
-  };
-  requests[idx] = updated;
-  persist();
-  return updated;
+async function update(id, patch) {
+  const request = await MaintenanceRequest.findByPk(id);
+  if (!request) return null;
+
+  await request.update({
+    ...(patch.title !== undefined && { title: patch.title }),
+    ...(patch.description !== undefined && { description: patch.description }),
+    ...(patch.priority !== undefined && { priority: patch.priority }),
+    ...(patch.plannedAt !== undefined && { plannedAt: patch.plannedAt }),
+  });
+
+  return findById(id);
 }
 
-function remove(id) {
-  const idx = requests.findIndex((r) => r.id === id);
-  if (idx === -1) return false;
-  requests.splice(idx, 1);
-  persist();
-  return true;
+async function changeStatus(id, newStatus, { changedBy, comment } = {}) {
+  const changedByResolved = await resolveTechnicianId(changedBy);
+
+  const updated = await sequelize.transaction(async (t) => {
+    const request = await MaintenanceRequest.findByPk(id, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!request) {
+      throw new NotFoundError(`Заявка с id=${id} не найдена`);
+    }
+
+    if (!canTransition(request.status, newStatus)) {
+      throw new ConflictError(
+        `Переход из "${request.status}" в "${newStatus}" недопустим`,
+        "INVALID_TRANSITION",
+      );
+    }
+
+    if (newStatus === "in_progress") {
+      const assigneeCount = await RequestAssignee.count({
+        where: { requestId: id },
+        transaction: t,
+      });
+      if (assigneeCount === 0) {
+        throw new ConflictError(
+          "Нельзя перевести заявку в работу без назначенных исполнителей",
+          "ASSIGNEES_REQUIRED",
+        );
+      }
+    }
+
+    const oldStatus = request.status;
+    await request.update({ status: newStatus }, { transaction: t });
+
+    await RequestStatusHistory.create(
+      {
+        requestId: id,
+        changedBy: changedByResolved,
+        oldStatus,
+        newStatus,
+        comment: comment ?? null,
+      },
+      { transaction: t },
+    );
+
+    return request;
+  });
+
+  return findById(updated.id);
 }
 
-export default { create, findById, findByEquipmentId, findAll, update, remove };
+async function remove(id) {
+  const deletedCount = await MaintenanceRequest.destroy({ where: { id } });
+  return deletedCount > 0;
+}
+
+export default {
+  create,
+  findById,
+  findByEquipmentId,
+  findAll,
+  update,
+  changeStatus,
+  remove,
+};

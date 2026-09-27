@@ -1,11 +1,7 @@
 import requestService from "../services/requestService.js";
-import equipmentRepository from "../repositories/equipmentRepository.js";
 
 async function create(req, res) {
-  const request = requestService.createRequest(
-    req.valid.body,
-    equipmentRepository,
-  );
+  const request = await requestService.createRequest(req.valid.body);
   res.status(201).location(`/api/requests/${request.id}`).json(request);
 }
 
@@ -20,7 +16,7 @@ async function list(req, res) {
     page = 1,
     limit = 20,
   } = req.valid.query;
-  const result = requestService.listRequests({
+  const result = await requestService.listRequests({
     status,
     priority,
     equipmentId,
@@ -30,19 +26,21 @@ async function list(req, res) {
     page,
     limit,
   });
-  res.status(200).json({
-    data: result.items,
-    meta: { total: result.total, page: result.page, limit: result.limit },
-  });
+  res
+    .status(200)
+    .json({
+      data: result.items,
+      meta: { total: result.total, page: result.page, limit: result.limit },
+    });
 }
 
 async function getById(req, res) {
-  const request = requestService.getRequestById(req.valid.params.id);
+  const request = await requestService.getRequestById(req.valid.params.id);
   res.status(200).json(request);
 }
 
 async function update(req, res) {
-  const request = requestService.updateRequest(
+  const request = await requestService.updateRequest(
     req.valid.params.id,
     req.valid.body,
   );
@@ -50,43 +48,20 @@ async function update(req, res) {
 }
 
 async function changeStatus(req, res) {
-  const request = requestService.changeStatus(
+  const request = await requestService.changeStatus(
     req.valid.params.id,
     req.valid.body.status,
+    {
+      changedBy: req.valid.body.changedBy,
+      comment: req.valid.body.comment,
+    },
   );
   res.status(200).json(request);
 }
 
 async function remove(req, res) {
-  requestService.deleteRequest(req.valid.params.id);
+  await requestService.deleteRequest(req.valid.params.id);
   res.status(204).send();
 }
 
-async function bulkCreate(req, res) {
-  const results = requestService.bulkCreateRequests(
-    req.valid.body.items,
-    equipmentRepository,
-  );
-
-  const successCount = results.filter((r) => r.success).length;
-  const failureCount = results.length - successCount;
-
-  res.status(207).json({
-    summary: {
-      total: results.length,
-      succeeded: successCount,
-      failed: failureCount,
-    },
-    results,
-  });
-}
-
-export default {
-  create,
-  list,
-  getById,
-  update,
-  changeStatus,
-  remove,
-  bulkCreate,
-};
+export default { create, list, getById, update, changeStatus, remove };
