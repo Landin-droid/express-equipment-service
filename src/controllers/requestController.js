@@ -1,7 +1,8 @@
 import requestService from "../services/requestService.js";
+import equipmentRepository from "../repositories/equipmentRepository.js";
 
 async function create(req, res) {
-  const request = await requestService.createRequest(req.valid.body);
+  const request = await requestService.createRequest(req.valid.body, equipmentRepository);
   res.status(201).location(`/api/requests/${request.id}`).json(request);
 }
 
@@ -26,12 +27,10 @@ async function list(req, res) {
     page,
     limit,
   });
-  res
-    .status(200)
-    .json({
-      data: result.items,
-      meta: { total: result.total, page: result.page, limit: result.limit },
-    });
+  res.status(200).json({
+    data: result.items,
+    meta: { total: result.total, page: result.page, limit: result.limit },
+  });
 }
 
 async function getById(req, res) {
@@ -64,4 +63,31 @@ async function remove(req, res) {
   res.status(204).send();
 }
 
-export default { create, list, getById, update, changeStatus, remove };
+async function bulkCreate(req, res) {
+  const results = await requestService.bulkCreateRequests(
+    req.valid.body.items,
+    equipmentRepository,
+  );
+
+  const successCount = results.filter((r) => r.success).length;
+  const failureCount = results.length - successCount;
+
+  res.status(207).json({
+    summary: {
+      total: results.length,
+      succeeded: successCount,
+      failed: failureCount,
+    },
+    results,
+  });
+}
+
+export default {
+  create,
+  list,
+  getById,
+  update,
+  changeStatus,
+  remove,
+  bulkCreate,
+};

@@ -1,3 +1,7 @@
+import { z } from "zod";
+
+const priorities = ["low", "medium", "high", "critical"];
+const statuses = ["new", "in_progress", "done", "rejected"];
 const REQUEST_SORT_FIELDS = [
   "title",
   "priority",
@@ -13,6 +17,20 @@ export const createRequestSchema = z.object({
   priority: z.enum(priorities),
   plannedAt: z.string().datetime().optional(),
   createdBy: z.string().uuid().optional(),
+});
+
+export const bulkCreateRequestSchema = z.object({
+  items: z
+    .array(z.unknown())
+    .min(1)
+    .max(50, "Максимум 50 записей за один импорт"),
+});
+
+export const updateRequestSchema = z.object({
+  title: z.string().min(5).max(120).optional(),
+  description: z.string().max(2000).optional(),
+  priority: z.enum(priorities).optional(),
+  plannedAt: z.string().datetime().optional(),
 });
 
 export const changeStatusSchema = z.object({

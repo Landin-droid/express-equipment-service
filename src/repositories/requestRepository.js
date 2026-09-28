@@ -164,53 +164,59 @@ async function update(id, patch) {
 async function changeStatus(id, newStatus, { changedBy, comment } = {}) {
   const changedByResolved = await resolveTechnicianId(changedBy);
 
-  const updated = await sequelize.transaction(async (t) => {
-    const request = await MaintenanceRequest.findByPk(id, {
-      transaction: t,
-      lock: t.LOCK.UPDATE,
-    });
+  let updated;
 
-    if (!request) {
-      throw new NotFoundError(`Заявка с id=${id} не найдена`);
-    }
+  try {
+    updated = await sequelize.transaction(async (t) => {
+      const request = await MaintenanceRequest.findByPk(id, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
 
-    if (!canTransition(request.status, newStatus)) {
-      throw new ConflictError(
-        `Переход из "${request.status}" в "${newStatus}" недопустим`,
-        "INVALID_TRANSITION",
-      );
-    }
+      if (!request) {
+        throw new NotFoundError(`Заявка с id=${id} не найдена`);
+      }
 
-    if (newStatus === "in_progress") {
+      if (!canTransition(request.status, newStatus)) {
+        throw new ConflictError(
+          `Переход из "${request.status}" в "${newStatus}" недопустим`,
+          "INVALID_TRANSITION",
+        );
+      }
+
       const assigneeCount = await RequestAssignee.count({
         where: { requestId: id },
         transaction: t,
       });
       if (assigneeCount === 0) {
         throw new ConflictError(
-          "Нельзя перевести заявку в работу без назначенных исполнителей",
+          "Нельзя изменить статус заявки без назначенных исполнителей",
           "ASSIGNEES_REQUIRED",
         );
       }
+
+      const oldStatus = request.status;
+      await request.update({ status: newStatus }, { transaction: t });
+
+      await RequestStatusHistory.create(
+        {
+          requestId: id,
+          changedBy: changedByResolved,
+          oldStatus,
+          newStatus,
+          comment: comment ?? null,
+        },
+        { transaction: t },
+      );
+
+      return request;
+    });
+  } catch (err) {
+    if (err instanceof ForeignKeyConstraintError) {
+      throw new NotFoundError(foreignKeyErrorMessage(err));
     }
-
-    const oldStatus = request.status;
-    await request.update({ status: newStatus }, { transaction: t });
-
-    await RequestStatusHistory.create(
-      {
-        requestId: id,
-        changedBy: changedByResolved,
-        oldStatus,
-        newStatus,
-        comment: comment ?? null,
-      },
-      { transaction: t },
-    );
-
-    return request;
-  });
-
+    throw err;
+  }
   return findById(updated.id);
 }
 

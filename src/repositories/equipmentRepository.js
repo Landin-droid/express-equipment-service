@@ -1,8 +1,9 @@
 import { UniqueConstraintError, ForeignKeyConstraintError } from "sequelize";
-import { Equipment, Site } from "../models/index.js";
+import { Equipment, Site, MaintenanceRequest, sequelize } from "../models/index.js";
 import { NotFoundError } from "../errors/NotFoundError.js";
 import { ConflictError } from "../errors/ConflictError.js";
 import crypto from "crypto";
+import { Op } from "sequelize";
 
 const EQUIPMENT_ATTRIBUTES = [
   "id",
@@ -160,6 +161,11 @@ async function update(id, patch) {
         `Серийный номер "${patch.serialNumber}" уже занят`,
       );
     }
+
+    if (err instanceof ForeignKeyConstraintError) {
+      throw new NotFoundError("Указанная площадка не найдена");
+    }
+    
     throw err;
   }
 
@@ -167,17 +173,26 @@ async function update(id, patch) {
 }
 
 async function remove(id) {
-  try {
-    const deletedCount = await Equipment.destroy({ where: { id } });
-    return deletedCount > 0;
-  } catch (err) {
-    if (err instanceof ForeignKeyConstraintError) {
+  return sequelize.transaction(async (t) => {
+    const equipment = await Equipment.findByPk(id, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!equipment) return false;
+
+    const openCount = await MaintenanceRequest.count({
+      where: { equipmentId: id, status: { [Op.in]: ["new", "in_progress"] } },
+      transaction: t,
+    });
+    if (openCount > 0) {
       throw new ConflictError(
-        "Нельзя удалить оборудование, на которое ссылаются заявки на обслуживание",
+        "Нельзя удалить оборудование с незакрытыми заявками",
       );
     }
-    throw err;
-  }
+
+    await equipment.destroy({ transaction: t });
+    return true;
+  });
 }
 
 export default {

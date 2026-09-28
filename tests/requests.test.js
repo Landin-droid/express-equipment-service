@@ -1,5 +1,7 @@
 import request from "supertest";
 import app from "../src/app.js";
+import { RequestAssignee } from "../src/models/index.js";
+import { resolveTechnicianId } from "../src/repositories/systemTechnician.js";
 
 async function createEquipment() {
   const res = await request(app)
@@ -14,6 +16,23 @@ async function createEquipment() {
       installedAt: "2024-01-01",
     });
   return res.body.id;
+}
+
+async function assignTechnicianToRequest(requestId) {
+  const technicianId = await resolveTechnicianId();
+
+  const existing = await RequestAssignee.findOne({
+    where: { requestId, technicianId },
+  });
+
+  if (!existing) {
+    await RequestAssignee.create({
+      requestId,
+      technicianId,
+      role: "lead",
+      plannedHours: 4,
+    });
+  }
 }
 
 describe("Maintenance Requests", () => {
@@ -52,11 +71,16 @@ describe("Maintenance Requests", () => {
 
     expect(res.status).toBe(201);
     expect(res.body.status).toBe("new");
-    
-    await request(app)
+
+    await assignTechnicianToRequest(res.body.id);
+
+    const statusRes = await request(app)
       .patch(`/api/requests/${res.body.id}/status`)
       .set("X-API-Key", "test-api-key")
       .send({ status: "rejected" });
+
+    expect(statusRes.status).toBe(200);
+    expect(statusRes.body.status).toBe("rejected");
   });
 
   it("POST /api/requests with nonexistent equipmentId returns 404", async () => {
@@ -91,7 +115,40 @@ describe("Maintenance Requests", () => {
     expect(res.body.status).toBe("new");
   });
 
+  it("PATCH /api/requests/:id/status rejects status change when no assignee exists", async () => {
+    const created = await request(app)
+      .post("/api/requests")
+      .set("X-API-Key", "test-api-key")
+      .send({
+        equipmentId,
+        title: "Заявка без исполнителя",
+        priority: "medium",
+      });
+
+    expect(created.status).toBe(201);
+
+    const res = await request(app)
+      .patch(`/api/requests/${created.body.id}/status`)
+      .set("X-API-Key", "test-api-key")
+      .send({ status: "in_progress" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("ASSIGNEES_REQUIRED");
+
+    await assignTechnicianToRequest(created.body.id);
+
+    const finalize = await request(app)
+      .patch(`/api/requests/${created.body.id}/status`)
+      .set("X-API-Key", "test-api-key")
+      .send({ status: "rejected" });
+
+    expect(finalize.status).toBe(200);
+    expect(finalize.body.status).toBe("rejected");
+  });
+
   it("PATCH /api/requests/:id/status allows valid transition new -> in_progress", async () => {
+    await assignTechnicianToRequest(requestId);
+
     const res = await request(app)
       .patch(`/api/requests/${requestId}/status`)
       .set("X-API-Key", "test-api-key")
