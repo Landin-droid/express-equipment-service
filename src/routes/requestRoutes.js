@@ -3,10 +3,10 @@ import requestController from "../controllers/requestController.js";
 import { validate } from "../middlewares/validate.js";
 import {
   createRequestSchema,
+  bulkCreateRequestSchema,
   updateRequestSchema,
   changeStatusSchema,
   listRequestsQuerySchema,
-  bulkCreateRequestSchema,
 } from "../validators/requestValidators.js";
 import { idParamSchema } from "../validators/equipmentValidators.js";
 import { apiKeyAuth } from "../middlewares/apiKeyAuth.js";
@@ -23,6 +23,12 @@ router.post(
   apiKeyAuth,
   validate({ body: createRequestSchema }),
   requestController.create,
+);
+router.post(
+  "/bulk",
+  apiKeyAuth,
+  validate({ body: bulkCreateRequestSchema }),
+  requestController.bulkCreate,
 );
 router.get(
   "/:id",
@@ -47,11 +53,6 @@ router.delete(
   validate({ params: idParamSchema }),
   requestController.remove,
 );
-router.post(
-  "/bulk",
-  apiKeyAuth,
-  validate({ body: bulkCreateRequestSchema }),
-  requestController.bulkCreate,
-);
+
 
 export default router;

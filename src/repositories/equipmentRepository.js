@@ -1,73 +1,198 @@
-import { randomUUID } from "crypto";
-import { createJsonFileStore } from "./storage/jsonFileStore.js";
+import { UniqueConstraintError, ForeignKeyConstraintError } from "sequelize";
+import { Equipment, Site, MaintenanceRequest, sequelize } from "../models/index.js";
+import { NotFoundError } from "../errors/NotFoundError.js";
+import { ConflictError } from "../errors/ConflictError.js";
+import crypto from "crypto";
+import { Op } from "sequelize";
 
-const store = createJsonFileStore("equipment.json");
+const EQUIPMENT_ATTRIBUTES = [
+  "id",
+  "siteId",
+  "name",
+  "type",
+  "serialNumber",
+  "status",
+  "installedAt",
+  "createdAt",
+  "updatedAt",
+];
+const SITE_ATTRIBUTES = [
+  "id",
+  "name",
+  "code",
+  "region",
+  "latitude",
+  "longitude",
+];
+const SITE_INCLUDE = { association: "site", attributes: SITE_ATTRIBUTES };
 
-let equipment = store.load();
-
-function persist() {
-  store.save(equipment);
+function toApiShape(instance) {
+  const plain = instance.get({ plain: true });
+  const site = plain.site;
+  return {
+    id: plain.id,
+    siteId: plain.siteId,
+    name: plain.name,
+    type: plain.type,
+    serialNumber: plain.serialNumber,
+    location: site
+      ? { lat: Number(site.latitude), lon: Number(site.longitude) }
+      : null,
+    status: plain.status,
+    installedAt: plain.installedAt,
+    createdAt: plain.createdAt,
+    updatedAt: plain.updatedAt,
+  };
 }
 
-function create(data) {
-  const id = randomUUID();
-  const now = new Date().toISOString();
-  const entity = { id, ...data, createdAt: now, updatedAt: now };
-  equipment.push(entity);
-  persist();
-  return entity;
+async function resolveSiteId({ siteId, location }) {
+  if (siteId) return siteId;
+
+  const codeSeed = crypto
+    .createHash("sha1")
+    .update(`${location.lat},${location.lon}`)
+    .digest("hex")
+    .slice(0, 10);
+
+  const [site] = await Site.findOrCreate({
+    where: { latitude: location.lat, longitude: location.lon },
+    defaults: {
+      name: `Автоплощадка (${location.lat}, ${location.lon})`,
+      code: `AUTO-${codeSeed}`,
+      region: null,
+      latitude: location.lat,
+      longitude: location.lon,
+    },
+  });
+
+  return site.id;
 }
 
-function findById(id) {
-  return equipment.find((e) => e.id === id) ?? null;
+async function create(data) {
+  const siteId = await resolveSiteId(data);
+
+  try {
+    const created = await Equipment.create({
+      siteId,
+      name: data.name,
+      type: data.type,
+      serialNumber: data.serialNumber,
+      status: data.status,
+      installedAt: data.installedAt,
+    });
+
+    return findById(created.id);
+  } catch (err) {
+    if (err instanceof UniqueConstraintError) {
+      throw new ConflictError(
+        `Оборудование с серийным номером "${data.serialNumber}" уже существует`,
+      );
+    }
+    if (err instanceof ForeignKeyConstraintError) {
+      throw new NotFoundError("Указанная площадка не найдена");
+    }
+    throw err;
+  }
 }
 
-function findBySerialNumber(serialNumber) {
-  return equipment.find((e) => e.serialNumber === serialNumber) ?? null;
+async function findById(id) {
+  const equipment = await Equipment.findByPk(id, {
+    attributes: EQUIPMENT_ATTRIBUTES,
+    include: [SITE_INCLUDE],
+  });
+  return equipment ? toApiShape(equipment) : null;
 }
 
-function findAll({ filters = {}, sort, page = 1, limit = 20 } = {}) {
-  let items = [...equipment];
+async function findBySerialNumber(serialNumber) {
+  const equipment = await Equipment.findOne({
+    where: { serialNumber },
+    attributes: EQUIPMENT_ATTRIBUTES,
+    include: [SITE_INCLUDE],
+  });
+  return equipment ? toApiShape(equipment) : null;
+}
 
-  if (filters.type) items = items.filter((e) => e.type === filters.type);
-  if (filters.status) items = items.filter((e) => e.status === filters.status);
+async function findAll({ filters = {}, sort, page = 1, limit = 20 } = {}) {
+  const where = {};
+  if (filters.type) where.type = filters.type;
+  if (filters.status) where.status = filters.status;
 
-  if (sort) {
-    const [field, direction] = sort.startsWith("-")
-      ? [sort.slice(1), -1]
-      : [sort, 1];
-    items.sort((a, b) =>
-      a[field] > b[field] ? direction : a[field] < b[field] ? -direction : 0,
-    );
+  const order = sort
+    ? [[sort.replace(/^-/, ""), sort.startsWith("-") ? "DESC" : "ASC"]]
+    : [["createdAt", "DESC"]];
+
+  const { rows, count } = await Equipment.findAndCountAll({
+    where,
+    order,
+    limit,
+    offset: (page - 1) * limit,
+    attributes: EQUIPMENT_ATTRIBUTES,
+    include: [SITE_INCLUDE],
+    distinct: true,
+  });
+
+  return { items: rows.map(toApiShape), total: count, page, limit };
+}
+
+async function update(id, patch) {
+  const equipment = await Equipment.findByPk(id);
+  if (!equipment) return null;
+
+  const needsSiteResolve =
+    patch.siteId !== undefined || patch.location !== undefined;
+  const nextSiteId = needsSiteResolve ? await resolveSiteId(patch) : undefined;
+
+  try {
+    await equipment.update({
+      ...(patch.name !== undefined && { name: patch.name }),
+      ...(patch.type !== undefined && { type: patch.type }),
+      ...(patch.serialNumber !== undefined && {
+        serialNumber: patch.serialNumber,
+      }),
+      ...(patch.status !== undefined && { status: patch.status }),
+      ...(patch.installedAt !== undefined && {
+        installedAt: patch.installedAt,
+      }),
+      ...(nextSiteId !== undefined && { siteId: nextSiteId }),
+    });
+  } catch (err) {
+    if (err instanceof UniqueConstraintError) {
+      throw new ConflictError(
+        `Серийный номер "${patch.serialNumber}" уже занят`,
+      );
+    }
+
+    if (err instanceof ForeignKeyConstraintError) {
+      throw new NotFoundError("Указанная площадка не найдена");
+    }
+    
+    throw err;
   }
 
-  const total = items.length;
-  const start = (page - 1) * limit;
-  const paged = items.slice(start, start + limit);
-
-  return { items: paged, total, page, limit };
+  return findById(id);
 }
 
-function update(id, patch) {
-  const idx = equipment.findIndex((e) => e.id === id);
-  if (idx === -1) return null;
-  const updated = {
-    ...equipment[idx],
-    ...patch,
-    id: equipment[idx].id,
-    updatedAt: new Date().toISOString(),
-  };
-  equipment[idx] = updated;
-  persist();
-  return updated;
-}
+async function remove(id) {
+  return sequelize.transaction(async (t) => {
+    const equipment = await Equipment.findByPk(id, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!equipment) return false;
 
-function remove(id) {
-  const idx = equipment.findIndex((e) => e.id === id);
-  if (idx === -1) return false;
-  equipment.splice(idx, 1);
-  persist();
-  return true;
+    const openCount = await MaintenanceRequest.count({
+      where: { equipmentId: id, status: { [Op.in]: ["new", "in_progress"] } },
+      transaction: t,
+    });
+    if (openCount > 0) {
+      throw new ConflictError(
+        "Нельзя удалить оборудование с незакрытыми заявками",
+      );
+    }
+
+    await equipment.destroy({ transaction: t });
+    return true;
+  });
 }
 
 export default {

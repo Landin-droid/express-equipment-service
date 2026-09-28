@@ -3,13 +3,13 @@ import requestService from "../services/requestService.js";
 import weatherService from "../services/weatherService.js";
 
 async function create(req, res) {
-  const equipment = equipmentService.createEquipment(req.valid.body);
+  const equipment = await equipmentService.createEquipment(req.valid.body);
   res.status(201).location(`/api/equipment/${equipment.id}`).json(equipment);
 }
 
 async function list(req, res) {
   const { type, status, sort, page = 1, limit = 20 } = req.valid.query;
-  const result = equipmentService.listEquipment({
+  const result = await equipmentService.listEquipment({
     type,
     status,
     sort,
@@ -25,12 +25,14 @@ async function list(req, res) {
 }
 
 async function getById(req, res) {
-  const equipment = equipmentService.getEquipmentById(req.valid.params.id);
+  const equipment = await equipmentService.getEquipmentById(
+    req.valid.params.id,
+  );
   res.status(200).json(equipment);
 }
 
 async function update(req, res) {
-  const equipment = equipmentService.updateEquipment(
+  const equipment = await equipmentService.updateEquipment(
     req.valid.params.id,
     req.valid.body,
   );
@@ -38,14 +40,14 @@ async function update(req, res) {
 }
 
 async function remove(req, res) {
-  equipmentService.deleteEquipment(req.valid.params.id);
+  await equipmentService.deleteEquipment(req.valid.params.id);
   res.status(204).send();
 }
 
 async function getWeather(req, res) {
-  const equipment = equipmentService.getEquipmentById(req.valid.params.id);
-  // days не входит в валидируемую схему params — это некритичный опциональный
-  // query-параметр, читаем его напрямую из req.query (он не мутировался).
+  const equipment = await equipmentService.getEquipmentById(
+    req.valid.params.id,
+  );
   const days = req.query.days ? Number(req.query.days) : 3;
   const forecast = await weatherService.getForecastForLocation(
     equipment.location,
@@ -61,8 +63,8 @@ async function getWeather(req, res) {
 }
 
 async function getRequests(req, res) {
-  equipmentService.getEquipmentById(req.valid.params.id);
-  const requests = requestService.listByEquipmentId(req.valid.params.id);
+  await equipmentService.getEquipmentById(req.valid.params.id);
+  const requests = await requestService.listByEquipmentId(req.valid.params.id);
   res.status(200).json({ data: requests, meta: { total: requests.length } });
 }
 

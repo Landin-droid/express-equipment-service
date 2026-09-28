@@ -9,8 +9,8 @@ function assertExists(equipment, id) {
   }
 }
 
-function createEquipment(data) {
-  const existing = equipmentRepository.findBySerialNumber(data.serialNumber);
+async function createEquipment(data) {
+  const existing = await equipmentRepository.findBySerialNumber(data.serialNumber);
   if (existing) {
     throw new ConflictError(
       `Оборудование с серийным номером "${data.serialNumber}" уже существует`,
@@ -19,7 +19,7 @@ function createEquipment(data) {
   return equipmentRepository.create(data);
 }
 
-function listEquipment(query) {
+async function listEquipment(query) {
   const { type, status, sort, page, limit } = query;
   return equipmentRepository.findAll({
     filters: { type, status },
@@ -29,18 +29,18 @@ function listEquipment(query) {
   });
 }
 
-function getEquipmentById(id) {
-  const equipment = equipmentRepository.findById(id);
+async function getEquipmentById(id) {
+  const equipment = await equipmentRepository.findById(id);
   assertExists(equipment, id);
   return equipment;
 }
 
-function updateEquipment(id, patch) {
-  const existing = equipmentRepository.findById(id);
+async function updateEquipment(id, patch) {
+  const existing = await equipmentRepository.findById(id);
   assertExists(existing, id);
 
   if (patch.serialNumber && patch.serialNumber !== existing.serialNumber) {
-    const clash = equipmentRepository.findBySerialNumber(patch.serialNumber);
+    const clash = await equipmentRepository.findBySerialNumber(patch.serialNumber);
     if (clash) {
       throw new ConflictError(
         `Серийный номер "${patch.serialNumber}" уже занят`,
@@ -51,16 +51,9 @@ function updateEquipment(id, patch) {
   return equipmentRepository.update(id, patch);
 }
 
-function deleteEquipment(id) {
-  const existing = equipmentRepository.findById(id);
+async function deleteEquipment(id) {
+  const existing = await equipmentRepository.findById(id);
   assertExists(existing, id);
-
-  if (requestService.hasOpenRequests(id)) {
-    throw new ConflictError(
-      "Нельзя удалить оборудование, по которому есть незакрытые заявки",
-    );
-  }
-
   return equipmentRepository.remove(id);
 }
 

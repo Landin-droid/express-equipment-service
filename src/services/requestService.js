@@ -1,5 +1,6 @@
 import requestRepository from "../repositories/requestRepository.js";
 import { canTransition } from "./statusTransitions.js";
+import { AppError } from "../errors/AppError.js";
 import { ConflictError } from "../errors/ConflictError.js";
 import { NotFoundError } from "../errors/NotFoundError.js";
 import { createRequestSchema } from "../validators/requestValidators.js";
@@ -12,8 +13,8 @@ function assertExists(request, id) {
   }
 }
 
-function createRequest(data, equipmentRepository) {
-  const equipment = equipmentRepository.findById(data.equipmentId);
+async function createRequest(data, equipmentRepository) {
+  const equipment = await equipmentRepository.findById(data.equipmentId);
   if (!equipment) {
     throw new NotFoundError(
       `Оборудование с id=${data.equipmentId} не найдено`,
@@ -34,8 +35,8 @@ function listRequests(query) {
   });
 }
 
-function getRequestById(id) {
-  const request = requestRepository.findById(id);
+async function getRequestById(id) {
+  const request = await requestRepository.findById(id);
   assertExists(request, id);
   return request;
 }
@@ -44,15 +45,15 @@ function listByEquipmentId(equipmentId) {
   return requestRepository.findByEquipmentId(equipmentId);
 }
 
-function updateRequest(id, patch) {
-  const existing = requestRepository.findById(id);
+async function updateRequest(id, patch) {
+  const existing = await requestRepository.findById(id);
   assertExists(existing, id);
   const { status, ...rest } = patch;
   return requestRepository.update(id, rest);
 }
 
-function changeStatus(id, newStatus) {
-  const existing = requestRepository.findById(id);
+async function changeStatus(id, newStatus) {
+  const existing = await requestRepository.findById(id);
   assertExists(existing, id);
 
   if (!canTransition(existing.status, newStatus)) {
@@ -62,57 +63,57 @@ function changeStatus(id, newStatus) {
     );
   }
 
-  return requestRepository.update(id, { status: newStatus });
+  return requestRepository.changeStatus(id, newStatus);
 }
 
-function deleteRequest(id) {
-  const existing = requestRepository.findById(id);
+async function deleteRequest(id) {
+  const existing = await requestRepository.findById(id);
   assertExists(existing, id);
   return requestRepository.remove(id);
 }
 
-function hasOpenRequests(equipmentId) {
-  return requestRepository
-    .findByEquipmentId(equipmentId)
-    .some((r) => OPEN_STATUSES.includes(r.status));
+async function hasOpenRequests(equipmentId) {
+  const requests = await requestRepository.findByEquipmentId(equipmentId);
+  return requests.some((r) => OPEN_STATUSES.includes(r.status));
 }
 
-function bulkCreateRequests(items, equipmentRepo) {
-  return items.map((rawItem, index) => {
+async function bulkCreateRequests(items) {
+  const results = [];
+  // Последовательно, каждая запись в своей транзакции (внутри repository.create):
+  // ошибка одной записи не влияет на остальные — это и есть частичный успех.
+  for (const [index, rawItem] of items.entries()) {
     const parsed = createRequestSchema.safeParse(rawItem);
-
     if (!parsed.success) {
-      return {
+      results.push({
         index,
         success: false,
         error: {
           code: "VALIDATION_ERROR",
           message: "Некорректные данные записи",
-          details: parsed.error.issues.map((issue) => ({
-            field: issue.path.join(".") || "(root)",
-            message: issue.message,
+          details: parsed.error.issues.map((i) => ({
+            field: i.path.join(".") || "(root)",
+            message: i.message,
           })),
         },
-      };
+      });
+      continue;
     }
-
-    const equipment = equipmentRepo.findById(parsed.data.equipmentId);
-    if (!equipment) {
-      return {
+    try {
+      results.push({
+        index,
+        success: true,
+        data: await requestRepository.create(parsed.data),
+      });
+    } catch (err) {
+      if (!(err instanceof AppError)) throw err; // непредвиденное -> 500, а не "тихий" провал записи
+      results.push({
         index,
         success: false,
-        error: {
-          code: "NOT_FOUND",
-          message: `Оборудование с id=${parsed.data.equipmentId} не найдено`,
-        },
-      };
+        error: { code: err.code, message: err.message },
+      });
     }
-
-    const { status, ...rest } = parsed.data;
-    const created = requestRepository.create(rest);
-
-    return { index, success: true, data: created };
-  });
+  }
+  return results;
 }
 
 export default {
