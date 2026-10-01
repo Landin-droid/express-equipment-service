@@ -1,4 +1,8 @@
-import { Op, ForeignKeyConstraintError } from "sequelize";
+import {
+  Op,
+  ForeignKeyConstraintError,
+  UniqueConstraintError,
+} from "sequelize";
 import {
   sequelize,
   MaintenanceRequest,
@@ -8,6 +12,7 @@ import {
 import { resolveTechnicianId } from "./systemTechnician.js";
 import { NotFoundError } from "../errors/NotFoundError.js";
 import { ConflictError } from "../errors/ConflictError.js";
+import { ValidationError } from "../errors/ValidationError.js";
 import { canTransition } from "../services/statusTransitions.js";
 
 const REQUEST_ATTRIBUTES = [
@@ -227,6 +232,74 @@ async function remove(id) {
   return deletedCount > 0;
 }
 
+async function replaceAssignees(requestId, assignees) {
+  try {
+    await sequelize.transaction(async (t) => {
+      const request = await MaintenanceRequest.findByPk(requestId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (!request)
+        throw new NotFoundError(`Заявка с id=${requestId} не найдена`);
+
+      await RequestAssignee.destroy({ where: { requestId }, transaction: t });
+      await RequestAssignee.bulkCreate(
+        assignees.map((a) => ({
+          requestId,
+          technicianId: a.technicianId,
+          role: a.role,
+          plannedHours: a.plannedHours ?? 0,
+        })),
+        { transaction: t },
+      );
+
+      const leadCount = await RequestAssignee.count({
+        where: { requestId, role: "lead" },
+        transaction: t,
+      });
+      if (leadCount !== 1) {
+        throw new ValidationError({
+          issues: [
+            {
+              path: ["assignees"],
+              message:
+                "В бригаде должен быть ровно один специалист с ролью lead",
+            },
+          ],
+        });
+      }
+    });
+  } catch (err) {
+    if (err instanceof UniqueConstraintError) {
+      throw new ConflictError("Специалист указан в бригаде более одного раза");
+    }
+    if (err instanceof ForeignKeyConstraintError) {
+      throw new NotFoundError("Указанный специалист не найден");
+    }
+    throw err;
+  }
+  return findById(requestId);
+}
+
+async function removeAssignee(requestId, technicianId) {
+  await sequelize.transaction(async (t) => {
+    const request = await MaintenanceRequest.findByPk(requestId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!request)
+      throw new NotFoundError(`Заявка с id=${requestId} не найдена`);
+
+    const deleted = await RequestAssignee.destroy({
+      where: { requestId, technicianId },
+      transaction: t,
+    });
+    if (deleted === 0)
+      throw new NotFoundError("Специалист не назначен на эту заявку");
+  });
+  return findById(requestId);
+}
+
 export default {
   create,
   findById,
@@ -235,4 +308,6 @@ export default {
   update,
   changeStatus,
   remove,
+  replaceAssignees,
+  removeAssignee,
 };

@@ -51,3 +51,21 @@ export const listRequestsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
+
+export const replaceAssigneesSchema = z.object({
+  assignees: z
+    .array(
+      z.object({
+        technicianId: z.string().uuid(),
+        role: z.enum(["lead", "member"]),
+        plannedHours: z.number().min(0).max(9999).optional(),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+
+export const assigneeParamsSchema = z.object({
+  id: z.string().uuid("Некорректный формат id"),
+  userId: z.string().uuid("Некорректный формат userId"),
+});
