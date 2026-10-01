@@ -1,5 +1,4 @@
 import equipmentRepository from "../repositories/equipmentRepository.js";
-import requestService from "./requestService.js";
 import { ConflictError } from "../errors/ConflictError.js";
 import { NotFoundError } from "../errors/NotFoundError.js";
 

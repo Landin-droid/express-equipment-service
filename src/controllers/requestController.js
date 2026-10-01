@@ -1,8 +1,7 @@
 import requestService from "../services/requestService.js";
-import equipmentRepository from "../repositories/equipmentRepository.js";
 
 async function create(req, res) {
-  const request = await requestService.createRequest(req.valid.body, equipmentRepository);
+  const request = await requestService.createRequest(req.valid.body);
   res.status(201).location(`/api/requests/${request.id}`).json(request);
 }
 
