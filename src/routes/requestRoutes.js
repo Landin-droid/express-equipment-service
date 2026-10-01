@@ -9,6 +9,10 @@ import {
   listRequestsQuerySchema,
 } from "../validators/requestValidators.js";
 import { idParamSchema } from "../validators/equipmentValidators.js";
+import {
+  replaceAssigneesSchema,
+  assigneeParamsSchema,
+} from "../validators/requestValidators.js";
 import { apiKeyAuth } from "../middlewares/apiKeyAuth.js";
 
 const router = Router();
@@ -53,6 +57,17 @@ router.delete(
   validate({ params: idParamSchema }),
   requestController.remove,
 );
-
+router.post(
+  "/:id/assignees",
+  apiKeyAuth,
+  validate({ params: idParamSchema, body: replaceAssigneesSchema }),
+  requestController.replaceAssignees,
+);
+router.delete(
+  "/:id/assignees/:userId",
+  apiKeyAuth,
+  validate({ params: assigneeParamsSchema }),
+  requestController.removeAssignee,
+);
 
 export default router;

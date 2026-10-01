@@ -100,6 +100,14 @@ async function bulkCreateRequests(items) {
   return results;
 }
 
+async function replaceAssignees(id, assignees) {
+  return requestRepository.replaceAssignees(id, assignees);
+}
+
+async function removeAssignee(id, technicianId) {
+  return requestRepository.removeAssignee(id, technicianId);
+}
+
 export default {
   createRequest,
   listRequests,
@@ -109,4 +117,6 @@ export default {
   changeStatus,
   deleteRequest,
   bulkCreateRequests,
+  replaceAssignees,
+  removeAssignee,
 };
