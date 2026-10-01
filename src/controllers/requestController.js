@@ -81,6 +81,22 @@ async function bulkCreate(req, res) {
   });
 }
 
+async function replaceAssignees(req, res) {
+  const request = await requestService.replaceAssignees(
+    req.valid.params.id,
+    req.valid.body.assignees,
+  );
+  res.status(200).json(request);
+}
+
+async function removeAssignee(req, res) {
+  await requestService.removeAssignee(
+    req.valid.params.id,
+    req.valid.params.userId,
+  );
+  res.status(204).send();
+}
+
 export default {
   create,
   list,
@@ -89,4 +105,6 @@ export default {
   changeStatus,
   remove,
   bulkCreate,
+  replaceAssignees,
+  removeAssignee,
 };
