@@ -184,17 +184,19 @@ async function changeStatus(id, newStatus, { changedBy, comment } = {}) {
         );
       }
 
-      const assigneeCount = await RequestAssignee.count({
-        where: { requestId: id },
-        transaction: t,
-      });
-      if (assigneeCount === 0) {
-        throw new ConflictError(
-          "Нельзя изменить статус заявки без назначенных исполнителей",
-          "ASSIGNEES_REQUIRED",
-        );
+      if (newStatus === "in_progress") {
+        const assigneeCount = await RequestAssignee.count({
+          where: { requestId: id },
+          transaction: t,
+        });
+        if (assigneeCount === 0) {
+          throw new ConflictError(
+            "Нельзя изменить статус заявки без назначенных исполнителей",
+            "ASSIGNEES_REQUIRED",
+          );
+        }
       }
-
+      
       const oldStatus = request.status;
       await request.update({ status: newStatus }, { transaction: t });
 

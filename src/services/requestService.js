@@ -5,23 +5,14 @@ import { ConflictError } from "../errors/ConflictError.js";
 import { NotFoundError } from "../errors/NotFoundError.js";
 import { createRequestSchema } from "../validators/requestValidators.js";
 
-const OPEN_STATUSES = ["new", "in_progress"];
-
 function assertExists(request, id) {
   if (!request) {
     throw new NotFoundError(`Заявка с id=${id} не найдена`);
   }
 }
 
-async function createRequest(data, equipmentRepository) {
-  const equipment = await equipmentRepository.findById(data.equipmentId);
-  if (!equipment) {
-    throw new NotFoundError(
-      `Оборудование с id=${data.equipmentId} не найдено`,
-    );
-  }
-  const { status, ...rest } = data;
-  return requestRepository.create(rest);
+async function createRequest(data) {
+  return requestRepository.create(data);
 }
 
 function listRequests(query) {
@@ -52,7 +43,7 @@ async function updateRequest(id, patch) {
   return requestRepository.update(id, rest);
 }
 
-async function changeStatus(id, newStatus) {
+async function changeStatus(id, newStatus, meta) {
   const existing = await requestRepository.findById(id);
   assertExists(existing, id);
 
@@ -63,7 +54,7 @@ async function changeStatus(id, newStatus) {
     );
   }
 
-  return requestRepository.changeStatus(id, newStatus);
+  return requestRepository.changeStatus(id, newStatus, meta);
 }
 
 async function deleteRequest(id) {
@@ -72,15 +63,8 @@ async function deleteRequest(id) {
   return requestRepository.remove(id);
 }
 
-async function hasOpenRequests(equipmentId) {
-  const requests = await requestRepository.findByEquipmentId(equipmentId);
-  return requests.some((r) => OPEN_STATUSES.includes(r.status));
-}
-
 async function bulkCreateRequests(items) {
   const results = [];
-  // Последовательно, каждая запись в своей транзакции (внутри repository.create):
-  // ошибка одной записи не влияет на остальные — это и есть частичный успех.
   for (const [index, rawItem] of items.entries()) {
     const parsed = createRequestSchema.safeParse(rawItem);
     if (!parsed.success) {
@@ -105,7 +89,7 @@ async function bulkCreateRequests(items) {
         data: await requestRepository.create(parsed.data),
       });
     } catch (err) {
-      if (!(err instanceof AppError)) throw err; // непредвиденное -> 500, а не "тихий" провал записи
+      if (!(err instanceof AppError)) throw err;
       results.push({
         index,
         success: false,
@@ -124,6 +108,5 @@ export default {
   updateRequest,
   changeStatus,
   deleteRequest,
-  hasOpenRequests,
   bulkCreateRequests,
 };
