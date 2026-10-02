@@ -10,6 +10,7 @@ import { apiRateLimiter } from "./config/rateLimitConfig.js";
 import equipmentRoutes from "./routes/equipmentRoutes.js";
 import requestRoutes from "./routes/requestRoutes.js";
 import siteRoutes from "./routes/siteRoutes.js";
+import reportRoutes from "./routes/reportRoutes.js";
 import { sequelize } from "./database/sequelize.js";
 
 const app = express();
@@ -41,6 +42,7 @@ app.use("/api", apiRateLimiter);
 app.use("/api/equipment", equipmentRoutes);
 app.use("/api/requests", requestRoutes);
 app.use("/api/sites", siteRoutes);
+app.use("/api/reports", reportRoutes);
 
 app.use(notFoundHandler);
 
