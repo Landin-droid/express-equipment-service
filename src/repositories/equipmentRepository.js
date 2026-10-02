@@ -1,5 +1,10 @@
 import { UniqueConstraintError, ForeignKeyConstraintError } from "sequelize";
-import { Equipment, Site, MaintenanceRequest, sequelize } from "../models/index.js";
+import {
+  Equipment,
+  Site,
+  MaintenanceRequest,
+  sequelize,
+} from "../models/index.js";
 import { NotFoundError } from "../errors/NotFoundError.js";
 import { ConflictError } from "../errors/ConflictError.js";
 import crypto from "crypto";
@@ -25,10 +30,22 @@ const SITE_ATTRIBUTES = [
   "longitude",
 ];
 const SITE_INCLUDE = { association: "site", attributes: SITE_ATTRIBUTES };
+const PASSPORT_ATTRIBUTES = [
+  "manufacturer",
+  "model",
+  "ratedPower",
+  "lastInspectionAt",
+];
+
+const PASSPORT_INCLUDE = {
+  association: "passport",
+  attributes: PASSPORT_ATTRIBUTES,
+};
 
 function toApiShape(instance) {
   const plain = instance.get({ plain: true });
   const site = plain.site;
+  const passport = plain.passport;
   return {
     id: plain.id,
     siteId: plain.siteId,
@@ -40,6 +57,15 @@ function toApiShape(instance) {
       : null,
     status: plain.status,
     installedAt: plain.installedAt,
+    passport: passport
+      ? {
+          id: passport.id,
+          manufacturer: passport.manufacturer,
+          model: passport.model,
+          ratedPower: Number(passport.ratedPower),
+          lastInspectionAt: passport.lastInspectionAt,
+        }
+      : null,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt,
   };
@@ -98,7 +124,7 @@ async function create(data) {
 async function findById(id) {
   const equipment = await Equipment.findByPk(id, {
     attributes: EQUIPMENT_ATTRIBUTES,
-    include: [SITE_INCLUDE],
+    include: [SITE_INCLUDE, PASSPORT_INCLUDE],
   });
   return equipment ? toApiShape(equipment) : null;
 }
@@ -107,7 +133,7 @@ async function findBySerialNumber(serialNumber) {
   const equipment = await Equipment.findOne({
     where: { serialNumber },
     attributes: EQUIPMENT_ATTRIBUTES,
-    include: [SITE_INCLUDE],
+    include: [SITE_INCLUDE, PASSPORT_INCLUDE],
   });
   return equipment ? toApiShape(equipment) : null;
 }
@@ -127,7 +153,7 @@ async function findAll({ filters = {}, sort, page = 1, limit = 20 } = {}) {
     limit,
     offset: (page - 1) * limit,
     attributes: EQUIPMENT_ATTRIBUTES,
-    include: [SITE_INCLUDE],
+    include: [SITE_INCLUDE, PASSPORT_INCLUDE],
     distinct: true,
   });
 
@@ -165,7 +191,7 @@ async function update(id, patch) {
     if (err instanceof ForeignKeyConstraintError) {
       throw new NotFoundError("Указанная площадка не найдена");
     }
-    
+
     throw err;
   }
 
