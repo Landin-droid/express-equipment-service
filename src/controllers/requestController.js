@@ -97,6 +97,11 @@ async function removeAssignee(req, res) {
   res.status(204).send();
 }
 
+async function getHistory(req, res) {
+  const history = await requestService.getRequestHistory(req.valid.params.id);
+  res.status(200).json({ data: history, meta: { total: history.length } });
+}
+
 export default {
   create,
   list,
@@ -107,4 +112,5 @@ export default {
   bulkCreate,
   replaceAssignees,
   removeAssignee,
+  getHistory,
 };

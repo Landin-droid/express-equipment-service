@@ -33,6 +33,12 @@ const ASSIGNEE_INCLUDE = {
   through: { attributes: ["role", "plannedHours"] },
 };
 
+const HISTORY_ATTRIBUTES = ['id', 'requestId', 'changedBy', 'oldStatus', 'newStatus', 'comment', 'changedAt'];
+const HISTORY_AUTHOR_INCLUDE = {
+  association: 'changedByTechnician',
+  attributes: ['id', 'firstName', 'lastName', 'specialization'],
+};
+
 function toApiShape(instance, { withAssignees = false } = {}) {
   const plain = instance.get({ plain: true });
   const shape = {
@@ -300,6 +306,34 @@ async function removeAssignee(requestId, technicianId) {
   return findById(requestId);
 }
 
+async function findHistoryByRequestId(requestId) {
+  const history = await RequestStatusHistory.findAll({
+    where: { requestId },
+    attributes: HISTORY_ATTRIBUTES,
+    include: [HISTORY_AUTHOR_INCLUDE],
+    order: [['changedAt', 'ASC']],
+  });
+
+  return history.map((h) => {
+    const plain = h.get({ plain: true });
+    return {
+      id: plain.id,
+      oldStatus: plain.oldStatus,
+      newStatus: plain.newStatus,
+      comment: plain.comment,
+      changedAt: plain.changedAt,
+      changedBy: plain.changedByTechnician
+        ? {
+            id: plain.changedByTechnician.id,
+            firstName: plain.changedByTechnician.firstName,
+            lastName: plain.changedByTechnician.lastName,
+            specialization: plain.changedByTechnician.specialization,
+          }
+        : null,
+    };
+  });
+}
+
 export default {
   create,
   findById,
@@ -310,4 +344,5 @@ export default {
   remove,
   replaceAssignees,
   removeAssignee,
+  findHistoryByRequestId,
 };
