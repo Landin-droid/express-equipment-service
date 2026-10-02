@@ -69,5 +69,10 @@ router.delete(
   validate({ params: assigneeParamsSchema }),
   requestController.removeAssignee,
 );
+router.get(
+  "/:id/history",
+  validate({ params: idParamSchema }),
+  requestController.getHistory,
+);
 
 export default router;

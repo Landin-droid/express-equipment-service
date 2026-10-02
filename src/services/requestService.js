@@ -108,6 +108,12 @@ async function removeAssignee(id, technicianId) {
   return requestRepository.removeAssignee(id, technicianId);
 }
 
+async function getRequestHistory(id) {
+  const existing = await requestRepository.findById(id);
+  assertExists(existing, id);
+  return requestRepository.findHistoryByRequestId(id);
+}
+
 export default {
   createRequest,
   listRequests,
@@ -119,4 +125,5 @@ export default {
   bulkCreateRequests,
   replaceAssignees,
   removeAssignee,
+  getRequestHistory,
 };
