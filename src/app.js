@@ -9,6 +9,7 @@ import { corsOptions } from "./config/corsConfig.js";
 import { apiRateLimiter } from "./config/rateLimitConfig.js";
 import equipmentRoutes from "./routes/equipmentRoutes.js";
 import requestRoutes from "./routes/requestRoutes.js";
+import siteRoutes from "./routes/siteRoutes.js";
 import { sequelize } from "./database/sequelize.js";
 
 const app = express();
@@ -39,6 +40,7 @@ app.use("/api", apiRateLimiter);
 
 app.use("/api/equipment", equipmentRoutes);
 app.use("/api/requests", requestRoutes);
+app.use("/api/sites", siteRoutes);
 
 app.use(notFoundHandler);
 
