@@ -12,3 +12,16 @@ export const apiRateLimiter = rateLimit({
     },
   },
 });
+
+export const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: {
+      code: "RATE_LIMIT_EXCEEDED",
+      message: "Слишком много попыток входа. Попробуйте позже.",
+    },
+  },
+});
