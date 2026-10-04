@@ -4,3 +4,7 @@ data
 .git
 *.log
 npm-debug.log*
+tests
+scripts
+docs
+db/init
