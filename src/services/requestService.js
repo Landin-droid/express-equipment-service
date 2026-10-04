@@ -4,6 +4,8 @@ import { AppError } from "../errors/AppError.js";
 import { ConflictError } from "../errors/ConflictError.js";
 import { NotFoundError } from "../errors/NotFoundError.js";
 import { createRequestSchema } from "../validators/requestValidators.js";
+import { RequestAssignee } from "../models/index.js";
+import { ForbiddenError } from "../errors/ForbiddenError.js";
 
 function assertExists(request, id) {
   if (!request) {
@@ -43,10 +45,19 @@ async function updateRequest(id, patch) {
   return requestRepository.update(id, rest);
 }
 
-async function changeStatus(id, newStatus, meta) {
+async function changeStatus(id, newStatus, meta, actingUser) {
   const existing = await requestRepository.findById(id);
   assertExists(existing, id);
 
+  if (actingUser.role === "technician") {
+    const isAssigned = await RequestAssignee.findOne({
+      where: { requestId: id, technicianId: actingUser.technicianId },
+    });
+    if (!isAssigned) {
+      throw new ForbiddenError("Вы не назначены на эту заявку");
+    }
+  }
+  
   if (!canTransition(existing.status, newStatus)) {
     throw new ConflictError(
       `Переход из "${existing.status}" в "${newStatus}" недопустим`,

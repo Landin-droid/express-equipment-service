@@ -6,6 +6,8 @@ import { Technician } from "./Technician.js";
 import { MaintenanceRequest } from "./MaintenanceRequest.js";
 import { RequestStatusHistory } from "./RequestStatusHistory.js";
 import { RequestAssignee } from "./RequestAssignee.js";
+import { User } from "./User.js";
+import { RefreshToken } from "./RefreshToken.js";
 
 Site.hasMany(Equipment, { foreignKey: "siteId", as: "equipment" });
 Equipment.belongsTo(Site, { foreignKey: "siteId", as: "site" });
@@ -84,6 +86,11 @@ RequestAssignee.belongsTo(Technician, {
   foreignKey: "technicianId",
   as: "technician",
 });
+Technician.hasOne(User, { foreignKey: "technicianId", as: "account" });
+User.belongsTo(Technician, { foreignKey: "technicianId", as: "technician" });
+
+User.hasMany(RefreshToken, { foreignKey: "userId", as: "refreshTokens" });
+RefreshToken.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 export {
   sequelize,
@@ -91,6 +98,8 @@ export {
   Equipment,
   EquipmentPassport,
   Technician,
+  User,
+  RefreshToken,
   MaintenanceRequest,
   RequestStatusHistory,
   RequestAssignee,

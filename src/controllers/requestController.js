@@ -53,6 +53,7 @@ async function changeStatus(req, res) {
       changedBy: req.valid.body.changedBy,
       comment: req.valid.body.comment,
     },
+    req.user
   );
   res.status(200).json(request);
 }

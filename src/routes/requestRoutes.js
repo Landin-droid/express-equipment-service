@@ -13,64 +13,74 @@ import {
   replaceAssigneesSchema,
   assigneeParamsSchema,
 } from "../validators/requestValidators.js";
-import { apiKeyAuth } from "../middlewares/apiKeyAuth.js";
+import { authenticate, requireRole } from "../middlewares/auth.js";
 
 const router = Router();
 
 router.get(
   "/",
+  authenticate,
   validate({ query: listRequestsQuerySchema }),
   requestController.list,
 );
 router.post(
   "/",
-  apiKeyAuth,
+  authenticate,
+  requireRole("technician", "admin"),
   validate({ body: createRequestSchema }),
   requestController.create,
 );
 router.post(
   "/bulk",
-  apiKeyAuth,
+  authenticate,
+  requireRole("technician", "admin"),
   validate({ body: bulkCreateRequestSchema }),
   requestController.bulkCreate,
 );
 router.get(
   "/:id",
+  authenticate,
   validate({ params: idParamSchema }),
   requestController.getById,
 );
 router.patch(
   "/:id",
-  apiKeyAuth,
+  authenticate,
+  requireRole("technician", "admin"),
   validate({ params: idParamSchema, body: updateRequestSchema }),
   requestController.update,
 );
 router.patch(
   "/:id/status",
-  apiKeyAuth,
+  authenticate,
+  requireRole("technician","admin"),
   validate({ params: idParamSchema, body: changeStatusSchema }),
   requestController.changeStatus,
 );
 router.delete(
   "/:id",
-  apiKeyAuth,
+  authenticate,
+  requireRole("admin"),
   validate({ params: idParamSchema }),
   requestController.remove,
 );
 router.post(
   "/:id/assignees",
-  apiKeyAuth,
+  authenticate,
+  requireRole("admin"),
   validate({ params: idParamSchema, body: replaceAssigneesSchema }),
   requestController.replaceAssignees,
 );
 router.delete(
   "/:id/assignees/:userId",
-  apiKeyAuth,
+  authenticate,
+  requireRole("admin"),
   validate({ params: assigneeParamsSchema }),
   requestController.removeAssignee,
 );
 router.get(
   "/:id/history",
+  authenticate,
   validate({ params: idParamSchema }),
   requestController.getHistory,
 );
