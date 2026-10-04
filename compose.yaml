@@ -36,6 +36,14 @@ services:
     environment:
       PGHOST: db
       PGPORT: 5432
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
 
 volumes:
   pgdata:
