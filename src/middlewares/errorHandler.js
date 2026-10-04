@@ -1,3 +1,4 @@
+import { logger } from "../config/logger.js";
 import { AppError } from "../errors/AppError.js";
 
 export function errorHandler(err, req, res, next) {
@@ -10,7 +11,7 @@ export function errorHandler(err, req, res, next) {
     isKnownError || !isProduction ? err.message : "Внутренняя ошибка сервера";
 
   if (!isKnownError) {
-    console.error(`[${req.requestId}] Unexpected error:`, err);
+    logger.error({ requestId: req.requestId, err }, "Unexpected error");
   }
 
   res.status(statusCode).json({

@@ -1,18 +1,21 @@
 import express from "express";
-import morgan from "morgan";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { requestId } from "./middlewares/requestId.js";
+import { requestLogger } from "./middlewares/requestLogger.js";
 import { notFoundHandler } from "./middlewares/notFoundHandler.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 import { corsOptions } from "./config/corsConfig.js";
 import { apiRateLimiter } from "./config/rateLimitConfig.js";
+import { logger } from "./config/logger.js";
+import healthController from "./controllers/healthController.js";
 import equipmentRoutes from "./routes/equipmentRoutes.js";
 import requestRoutes from "./routes/requestRoutes.js";
 import siteRoutes from "./routes/siteRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import healthRoutes from "./routes/healthRoutes.js";
 import { sequelize } from "./database/sequelize.js";
 
 const app = express();
@@ -24,21 +27,14 @@ app.use(cookieParser());
 
 app.use(cors(corsOptions));
 
-morgan.token("id", (req) => req.requestId);
-app.use(morgan(":id :method :url :status :response-time ms"));
+app.use(requestLogger);
 
 app.use(express.json({ limit: "100kb" }));
 
 app.use(express.static("public"));
 
-app.get("/api/health", async (req, res) => {
-  try {
-    await sequelize.authenticate();
-    res.status(200).json({ status: "ok", db: "connected" });
-  } catch (err) {
-    res.status(500).json({ status: "error", db: "disconnected" });
-  }
-});
+app.get("/api/health", healthController.ready);
+app.use("/api/health", healthRoutes);
 
 app.use("/api", apiRateLimiter);
 
