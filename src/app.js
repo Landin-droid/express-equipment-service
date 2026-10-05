@@ -9,7 +9,6 @@ import { errorHandler } from "./middlewares/errorHandler.js";
 import { corsOptions } from "./config/corsConfig.js";
 import { apiRateLimiter } from "./config/rateLimitConfig.js";
 import { metricsMiddleware } from "./middlewares/metrics.js";
-import { logger } from "./config/logger.js";
 import healthController from "./controllers/healthController.js";
 import equipmentRoutes from "./routes/equipmentRoutes.js";
 import requestRoutes from "./routes/requestRoutes.js";
@@ -18,7 +17,15 @@ import reportRoutes from "./routes/reportRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import healthRoutes from "./routes/healthRoutes.js";
 import metricsRoutes from "./routes/metricsRoutes.js";
-import { sequelize } from "./database/sequelize.js";
+import swaggerUi from "swagger-ui-express";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import path from "path";
+import * as yaml from "js-yaml";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const openapiPath = path.resolve(__dirname, "../docs/openapi.yaml");
+const openapiDocument = yaml.load(readFileSync(openapiPath, "utf-8"));
 
 const app = express();
 app.set("trust proxy", 1);
@@ -41,6 +48,7 @@ app.use(express.static("public"));
 app.get("/api/health", healthController.ready);
 app.use("/api/health", healthRoutes);
 app.use("/metrics", metricsRoutes);
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openapiDocument));
 
 app.use("/api", apiRateLimiter);
 

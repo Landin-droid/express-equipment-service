@@ -1,0 +1,588 @@
+openapi: 3.0.3
+info:
+  title: Equipment Maintenance API
+  version: 4.0.0
+  description: >
+    REST API для учёта заявок на техническое обслуживание оборудования.
+    Аутентификация — JWT access-токен (Bearer) + refresh-токен в HttpOnly cookie.
+servers:
+  - url: /
+
+tags:
+  - name: Auth
+  - name: Equipment
+  - name: Requests
+  - name: Sites
+  - name: Reports
+  - name: Health
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Access-токен, полученный через POST /api/auth/login или /api/auth/refresh.
+        Роли: viewer (чтение), technician (viewer + создание/редактирование заявок,
+        смена статуса только своих назначенных заявок), admin (все операции).
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+            requestId: { type: string }
+
+    PageMeta:
+      type: object
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+
+    Location:
+      type: object
+      properties:
+        lat: { type: number }
+        lon: { type: number }
+
+    EquipmentPassport:
+      type: object
+      nullable: true
+      properties:
+        id: { type: string, format: uuid }
+        manufacturer: { type: string }
+        model: { type: string }
+        ratedPower: { type: number }
+        lastInspectionAt: { type: string, format: date, nullable: true }
+
+    Equipment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        siteId: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string, enum: [turbine, inverter, sensor, substation] }
+        serialNumber: { type: string }
+        location: { $ref: '#/components/schemas/Location' }
+        status: { type: string, enum: [operational, maintenance, fault, decommissioned] }
+        installedAt: { type: string, format: date }
+        passport: { $ref: '#/components/schemas/EquipmentPassport' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    EquipmentCreate:
+      type: object
+      required: [name, type, serialNumber, status, installedAt]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 100 }
+        type: { type: string, enum: [turbine, inverter, sensor, substation] }
+        serialNumber: { type: string }
+        siteId: { type: string, format: uuid, description: "siteId или location — обязателен один из них" }
+        location: { $ref: '#/components/schemas/Location' }
+        status: { type: string, enum: [operational, maintenance, fault, decommissioned] }
+        installedAt: { type: string, format: date }
+
+    EquipmentUpdate:
+      allOf:
+        - $ref: '#/components/schemas/EquipmentCreate'
+      description: Все поля необязательны при обновлении (partial).
+
+    AssigneeSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        firstName: { type: string }
+        lastName: { type: string }
+        specialization: { type: string, nullable: true }
+        role: { type: string, enum: [lead, member] }
+        plannedHours: { type: number }
+
+    MaintenanceRequest:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        equipmentId: { type: string, format: uuid }
+        createdBy: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        priority: { type: string, enum: [low, medium, high, critical] }
+        status: { type: string, enum: [new, in_progress, done, rejected] }
+        plannedAt: { type: string, format: date-time, nullable: true }
+        assignees:
+          type: array
+          items: { $ref: '#/components/schemas/AssigneeSummary' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    RequestCreate:
+      type: object
+      required: [equipmentId, title, priority]
+      properties:
+        equipmentId: { type: string, format: uuid }
+        title: { type: string, minLength: 5, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        priority: { type: string, enum: [low, medium, high, critical] }
+        plannedAt: { type: string, format: date-time }
+        createdBy: { type: string, format: uuid, description: "Опционально; по умолчанию автор — служебный пользователь SYSTEM" }
+
+    RequestUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 5, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        priority: { type: string, enum: [low, medium, high, critical] }
+        plannedAt: { type: string, format: date-time }
+
+    StatusChange:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [new, in_progress, done, rejected] }
+        changedBy: { type: string, format: uuid }
+        comment: { type: string, maxLength: 1000 }
+
+    AssigneesReplace:
+      type: object
+      required: [assignees]
+      properties:
+        assignees:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: object
+            required: [technicianId, role]
+            properties:
+              technicianId: { type: string, format: uuid }
+              role: { type: string, enum: [lead, member] }
+              plannedHours: { type: number }
+
+    HistoryEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        oldStatus: { type: string, nullable: true }
+        newStatus: { type: string }
+        comment: { type: string, nullable: true }
+        changedAt: { type: string, format: date-time }
+        changedBy:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string, format: uuid }
+            firstName: { type: string }
+            lastName: { type: string }
+
+    SiteSummary:
+      type: object
+      properties:
+        siteId: { type: string, format: uuid }
+        siteName: { type: string }
+        requestsByStatus: { type: object, additionalProperties: { type: integer } }
+        requestsByPriority: { type: object, additionalProperties: { type: integer } }
+        averageClosureHours: { type: number, nullable: true }
+
+    EquipmentLoadItem:
+      type: object
+      properties:
+        equipmentId: { type: string, format: uuid }
+        equipmentName: { type: string }
+        serialNumber: { type: string }
+        requestCount: { type: integer }
+        closedRequestCount: { type: integer }
+        plannedHours: { type: number }
+        lastServiceAt: { type: string, format: date-time, nullable: true }
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    AuthUser:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { type: string, enum: [viewer, technician, admin] }
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken: { type: string }
+        user: { $ref: '#/components/schemas/AuthUser' }
+
+  responses:
+    Unauthorized:
+      description: Отсутствует или недействителен access-токен
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Недостаточно прав для операции
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Сущность не найдена
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    ValidationError:
+      description: Некорректные данные запроса
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Конфликт (дубль, недопустимый переход, нарушение правила бригады)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  parameters:
+    idParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация пользователя (роль viewer по умолчанию)
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RegisterRequest' } } }
+      responses:
+        '201': { description: Создан, content: { application/json: { schema: { $ref: '#/components/schemas/AuthUser' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Вход, выдача access-токена и refresh-cookie
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/LoginResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { description: Превышен лимит попыток входа }
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Обновление access-токена по refresh-cookie
+      security: []
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { accessToken: { type: string } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Завершение сессии
+      security: []
+      responses:
+        '204': { description: No Content }
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Текущий пользователь
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuthUser' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/equipment:
+    get:
+      tags: [Equipment]
+      summary: Список оборудования
+      parameters:
+        - { name: type, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: sort, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Equipment' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Equipment]
+      summary: Создание оборудования (только admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EquipmentCreate' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/equipment/{id}:
+    get:
+      tags: [Equipment]
+      summary: Карточка оборудования
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Equipment]
+      summary: Частичное обновление (только admin)
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/EquipmentUpdate' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Equipment' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Equipment]
+      summary: Удаление (только admin; 409 при незакрытых заявках)
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      responses:
+        '204': { description: No Content }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/equipment/{id}/requests:
+    get:
+      tags: [Equipment]
+      summary: Заявки по оборудованию
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/MaintenanceRequest' } }
+                  meta: { type: object, properties: { total: { type: integer } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/equipment/{id}/weather:
+    get:
+      tags: [Equipment]
+      summary: Прогноз погоды для площадки оборудования
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { description: Внешний погодный сервис недоступен }
+
+  /api/requests:
+    get:
+      tags: [Requests]
+      summary: Список заявок
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: priority, in: query, schema: { type: string } }
+        - { name: equipmentId, in: query, schema: { type: string, format: uuid } }
+        - { name: dateFrom, in: query, schema: { type: string, format: date-time } }
+        - { name: dateTo, in: query, schema: { type: string, format: date-time } }
+        - { name: sort, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/MaintenanceRequest' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+    post:
+      tags: [Requests]
+      summary: Создание заявки (technician, admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RequestCreate' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/MaintenanceRequest' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/requests/bulk:
+    post:
+      tags: [Requests]
+      summary: Массовый импорт заявок, частичный успех (technician, admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items: { type: array, items: { $ref: '#/components/schemas/RequestCreate' }, maxItems: 50 }
+      responses:
+        '207': { description: Multi-Status — отчёт по каждой записи }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/requests/{id}:
+    get:
+      tags: [Requests]
+      summary: Карточка заявки
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MaintenanceRequest' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Requests]
+      summary: Редактирование полей (без смены статуса; technician, admin)
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/RequestUpdate' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MaintenanceRequest' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Requests]
+      summary: Удаление заявки (только admin)
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      responses:
+        '204': { description: No Content }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/requests/{id}/status:
+    patch:
+      tags: [Requests]
+      summary: >
+        Смена статуса (technician — только на своих назначенных заявках, admin — на любых).
+        409 при недопустимом переходе или отсутствии бригады для in_progress.
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StatusChange' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MaintenanceRequest' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/requests/{id}/assignees:
+    post:
+      tags: [Requests]
+      summary: Замена бригады целиком, требуется ровно один lead (только admin)
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AssigneesReplace' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MaintenanceRequest' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/requests/{id}/assignees/{userId}:
+    delete:
+      tags: [Requests]
+      summary: Снятие специалиста с заявки (только admin)
+      parameters:
+        - { $ref: '#/components/parameters/idParam' }
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: No Content }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/requests/{id}/history:
+    get:
+      tags: [Requests]
+      summary: История изменений статуса заявки
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/HistoryEntry' } }
+                  meta: { type: object, properties: { total: { type: integer } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sites/{id}/summary:
+    get:
+      tags: [Sites]
+      summary: Сводка по площадке
+      parameters: [{ $ref: '#/components/parameters/idParam' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SiteSummary' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/reports/equipment-load:
+    get:
+      tags: [Reports]
+      summary: Нагрузка на оборудование (raw SQL, GROUP BY/HAVING)
+      parameters:
+        - { name: dateFrom, in: query, schema: { type: string, format: date-time } }
+        - { name: dateTo, in: query, schema: { type: string, format: date-time } }
+        - { name: minRequests, in: query, schema: { type: integer, default: 1 } }
+        - { name: sort, in: query, schema: { type: string, enum: [equipmentName, requestCount, closedRequestCount, plannedHours, lastServiceAt] } }
+        - { name: direction, in: query, schema: { type: string, enum: [ASC, DESC] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/EquipmentLoadItem' } }
+                  meta: { type: object, properties: { total: { type: integer }, limit: { type: integer }, offset: { type: integer } } }
+
+  /api/health/live:
+    get:
+      tags: [Health]
+      summary: Liveness
+      security: []
+      responses: { '200': { description: OK } }
+
+  /api/health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness (проверяет БД)
+      security: []
+      responses:
+        '200': { description: OK }
+        '503': { description: БД недоступна }
