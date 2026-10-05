@@ -21,6 +21,7 @@ import metricsRoutes from "./routes/metricsRoutes.js";
 import { sequelize } from "./database/sequelize.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 app.use(requestId);
 
