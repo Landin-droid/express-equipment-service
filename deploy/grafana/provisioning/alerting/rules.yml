@@ -1,0 +1,32 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: equipment-service-alerts
+    folder: Alerts
+    interval: 1m
+    rules:
+      - uid: high-5xx-ratio
+        title: High 5xx error ratio
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        data:
+          - refId: A
+            datasourceUid: prometheus-ds
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              expr: sum(rate(http_requests_total{status_code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+        annotations:
+          summary: "Доля ответов 5xx превышает 5% за последние 5 минут — проверить логи приложения (requestId) и доступность БД"
+        labels:
+          severity: critical
