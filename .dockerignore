@@ -6,5 +6,4 @@ data
 npm-debug.log*
 tests
 scripts
-docs
 db/init

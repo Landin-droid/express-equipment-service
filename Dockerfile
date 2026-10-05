@@ -22,6 +22,7 @@ COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node src/ ./src/
 COPY --chown=node:node public/ ./public/
+COPY --chown=node:node docs/ ./docs/
 COPY --chown=node:node .env.example ./
 
 RUN mkdir -p data && chown node:node data
