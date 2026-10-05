@@ -10,7 +10,7 @@ REST API на Express и PostgreSQL для учёта заявок на техн
 
 ## Установка и запуск
 
-Скопируйте `.env.example` в `.env` (`Copy-Item .env.example .env` в PowerShell, `cp .env.example .env` в Bash). Поменяйте демонстрационные значения `API_KEY` и пароля БД до запуска; `.env.example` содержит только локальные примеры и не должен использоваться в production.
+Скопируйте `.env.example` в `.env` (`Copy-Item .env.example .env` в PowerShell, `cp .env.example .env` в Bash). Поменяйте демонстрационные значения секретов и паролей до запуска; `.env.example` содержит только локальные примеры и не должен использоваться в production.
 
 ```bash
 npm install
@@ -19,9 +19,19 @@ npm run db:deploy
 npm run dev
 ```
 
-Отдельный шаг развёртывания `npm run db:deploy` запускает миграции и сиды последовательно в воспроизводимом порядке и используется вместо ручного вызова `npm run db:migrate` и `npm run db:seed`. Команда выполняется из корня проекта на хосте и использует `PGHOST`/`PGPORT` из `.env`. Сервер стартует на `PORT` (по умолчанию `3000`); проверка: `http://localhost:3000/api/health`. PostgreSQL доступен с хоста на `PGPORT` (в примере `5433`). В контейнере API Compose переопределяет подключение на хост `db` и порт `5432`.
+`npm run db:deploy` — отдельный обязательный шаг развёртывания БД. Он последовательно применяет миграции, затем сиды, и останавливается с ошибкой, если любой шаг завершается неуспешно. Sequelize CLI хранит учёт выполненных миграций и сидов, поэтому повторный запуск не применяет уже учтённые изменения повторно. Выполняйте этот шаг после готовности PostgreSQL и до запуска или обновления API; сервер сам миграции и сиды не запускает. При запуске на хосте команда выполняется из корня проекта и использует `PGHOST`/`PGPORT` из `.env`.
 
-Чтобы запустить API и БД в контейнерах, сначала примените миграции и сид отдельным шагом развёртывания: `docker compose --profile deploy run --rm db-deploy`. После этого запустите API: `docker compose up --build api`. Контейнер API сам миграции не запускает. PostgreSQL хранит данные в именованном томе `pgdata`; `docker compose down` его сохраняет. `docker compose down -v` необратимо удаляет данные БД.
+Сервер стартует на `PORT` (по умолчанию `3000`); проверка: `http://localhost:3000/api/health`. PostgreSQL доступен с хоста на `PGPORT` (в примере `5433`). В контейнере API Compose переопределяет подключение на хост `db` и порт `5432`.
+
+Для контейнерного развёртывания запустите PostgreSQL, выполните одноразовый сервис развёртывания БД, затем запускайте API:
+
+```bash
+docker compose up -d db
+docker compose --profile deploy run --build --rm db-deploy
+docker compose up --build api
+```
+
+`db-deploy` использует отдельную сборочную цель с Sequelize CLI и ждёт успешной проверки готовности PostgreSQL. Чтобы поднять весь стек после deploy-step, выполните `docker compose up --build`. PostgreSQL хранит состояние в именованном томе `pgdata`; `docker compose down` его сохраняет. `docker compose down -v` необратимо удаляет данные БД.
 
 Сид рассчитан на однократный запуск в каждой БД и создаёт 2 площадки, 6 единиц оборудования с паспортами, 5 специалистов и 20 заявок во всех статусах, включая назначения и историю изменений. Sequelize CLI хранит отметку о выполнении сида; для повторного заполнения сначала отмените сид.
 
@@ -125,15 +135,14 @@ stateDiagram-v2
 
 ## Миграции и откат
 
-Миграции создают схему и выполняются через Sequelize CLI. Повторно заполнить чистую БД можно командами `npm run db:migrate` и `npm run db:seed`. Отменить последний сид: `npx sequelize-cli db:seed:undo`; отменить все сиды: `npx sequelize-cli db:seed:undo:all`.
+Миграции создают схему через Sequelize CLI. Для штатного развертывания используйте единый шаг `npm run db:deploy` (или `docker compose --profile deploy run --build --rm db-deploy` для контейнеров), который выполняет миграции и сиды в заданном порядке. Отменить последний сид: `npx sequelize-cli db:seed:undo`; отменить все сиды: `npx sequelize-cli db:seed:undo:all`.
 
 Для отката схемы сначала отмените сиды, затем миграции:
 
 ```bash
 npx sequelize-cli db:seed:undo:all
 npx sequelize-cli db:migrate:undo:all
-npm run db:migrate
-npm run db:seed
+npm run db:deploy
 ```
 
 Откат всех миграций удаляет таблицы и данные в настроенной БД. Используйте его только для локального/тестового окружения или после резервного копирования.
@@ -356,6 +365,8 @@ src/
   validators/          # Zod-схемы для body/params/query
   errors/              # AppError и наследники
   config/              # corsConfig.js, rateLimitConfig.js, weatherConfig.js
+scripts/
+  db-deploy.js         # последовательный шаг применения миграций и сидов
 public/                # статическая HTML-страница (index.html, script.js)
 tests/                 # Jest + Supertest
 docs/postman/          # Postman-коллекция Case 3
@@ -371,7 +382,7 @@ compose.yaml, Dockerfile
 
 ### Postman
 
-Коллекция — [`docs/postman/Equipment Maintenance API.postman_collection.json`](docs/postman/Equipment%20Maintenance%20API.postman_collection.json). Перед запуском Collection Runner примените миграции и сиды, затем задайте переменную коллекции `apiKey` равной значению `API_KEY` из `.env`; `baseUrl` по умолчанию `http://localhost:3000`. Demo IDs площадки, оборудования и специалистов соответствуют фиксированным ID сида `dataSeed.cjs`.
+Коллекция — [`docs/postman/Equipment Maintenance API.postman_collection.json`](docs/postman/Equipment%20Maintenance%20API.postman_collection.json). Перед запуском Collection Runner выполните отдельный шаг `npm run db:deploy` (или контейнерный deploy-step), затем задайте переменные коллекции согласно настройке API; `baseUrl` по умолчанию `http://localhost:3000`. Demo IDs площадки, оборудования и специалистов соответствуют фиксированным ID сида `dataSeed.cjs`.
 
 Коллекция содержит позитивные сценарии назначения/снятия специалиста, истории заявки, сводки площадки и отчёта по оборудованию. Группа `Case 3 Negative Scenarios` проверяет 404 для отсутствующего специалиста, 409 при дублировании специалиста и переводе в `in_progress` без команды, а также 422 для команды без `lead`. Запускайте запросы в порядке коллекции: setup-запросы записывают созданные ID в переменные, cleanup удаляет временные заявки.
 

@@ -23,7 +23,9 @@ services:
       retries: 10
       start_period: 10s
   db-deploy:
-    build: .
+    build:
+      context: .
+      target: db-deploy
     container_name: equipment-maintenance-db-deploy
     depends_on:
       db:
@@ -31,10 +33,9 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       PGHOST: db
       PGPORT: 5432
-    command: ["npm", "run", "db:deploy"]
     profiles: ["deploy"]
   api:
     build: .

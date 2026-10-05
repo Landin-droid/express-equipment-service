@@ -7,6 +7,14 @@ COPY package*.json ./
 FROM base AS dev-deps
 RUN npm ci
 
+# Изолированный образ для миграций и сидов; CLI доступен из dev-зависимостей.
+FROM dev-deps AS db-deploy
+COPY .sequelizerc ./
+COPY scripts/ ./scripts/
+COPY src/ ./src/
+USER node
+CMD ["npm", "run", "db:deploy"]
+
 # продакшн-зависимости
 FROM base AS prod-deps
 RUN npm ci --omit=dev
@@ -20,8 +28,6 @@ WORKDIR /app
 # его для запуска приложения
 COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node package*.json ./
-COPY --chown=node:node .sequelizerc ./
-COPY --chown=node:node scripts/ ./scripts/
 COPY --chown=node:node src/ ./src/
 COPY --chown=node:node public/ ./public/
 COPY --chown=node:node docs/ ./docs/
