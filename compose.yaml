@@ -22,6 +22,20 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+  db-deploy:
+    build: .
+    container_name: equipment-maintenance-db-deploy
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      PGHOST: db
+      PGPORT: 5432
+    command: ["npm", "run", "db:deploy"]
+    profiles: ["deploy"]
   api:
     build: .
     container_name: equipment-maintenance-api

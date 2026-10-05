@@ -20,6 +20,8 @@ WORKDIR /app
 # его для запуска приложения
 COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node package*.json ./
+COPY --chown=node:node .sequelizerc ./
+COPY --chown=node:node scripts/ ./scripts/
 COPY --chown=node:node src/ ./src/
 COPY --chown=node:node public/ ./public/
 COPY --chown=node:node docs/ ./docs/

@@ -8,6 +8,7 @@
     "dev": "nodemon ./src/server.js",
     "db:migrate": "sequelize-cli db:migrate",
     "db:seed": "sequelize-cli db:seed:all",
+    "db:deploy": "node ./scripts/db-deploy.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand"
   },
   "keywords": [],
