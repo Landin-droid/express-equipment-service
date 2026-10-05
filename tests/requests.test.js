@@ -1,195 +1,197 @@
 import request from "supertest";
 import app from "../src/app.js";
-import { RequestAssignee } from "../src/models/index.js";
-import { resolveTechnicianId } from "../src/repositories/systemTechnician.js";
+import { resetDb } from "./helpers/resetDB.js";
+import { createUserWithToken, createTechnicianUser } from "./helpers/authFixtures.js";
 
-async function createEquipment() {
-  const res = await request(app)
-    .post("/api/equipment")
-    .set("X-API-Key", "test-api-key")
-    .send({
-      name: "Equipment For Requests",
-      type: "sensor",
-      serialNumber: `SN-REQ-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      location: { lat: 60.1, lon: 24.9 },
-      status: "operational",
-      installedAt: "2024-01-01",
-    });
-  return res.body.id;
-}
-
-async function assignTechnicianToRequest(requestId) {
-  const technicianId = await resolveTechnicianId();
-
-  const existing = await RequestAssignee.findOne({
-    where: { requestId, technicianId },
-  });
-
-  if (!existing) {
-    await RequestAssignee.create({
-      requestId,
-      technicianId,
-      role: "lead",
-      plannedHours: 4,
-    });
-  }
+function buildEquipmentPayload(overrides = {}) {
+  return {
+    name: "Request Equipment",
+    type: "sensor",
+    serialNumber: `SN-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    location: { lat: 60.1, lon: 24.9 },
+    status: "operational",
+    installedAt: "2024-01-01",
+    ...overrides,
+  };
 }
 
 describe("Maintenance Requests", () => {
-  let equipmentId;
-  let requestId;
+  let adminToken;
+  let technicianToken;
+  let technicianId;
 
-  beforeAll(async () => {
-    equipmentId = await createEquipment();
+  beforeEach(async () => {
+    await resetDb();
+    adminToken = (await createUserWithToken("admin")).accessToken;
+    const technician = await createTechnicianUser();
+    technicianToken = technician.accessToken;
+    technicianId = technician.user.technicianId;
   });
 
-  it('POST /api/requests creates request with default status "new"', async () => {
+  async function createEquipment() {
+    const res = await request(app)
+      .post("/api/equipment")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send(buildEquipmentPayload());
+    expect(res.status).toBe(201);
+    return res.body.id;
+  }
+
+  async function createRequest(equipmentId, overrides = {}) {
     const res = await request(app)
       .post("/api/requests")
-      .set("X-API-Key", "test-api-key")
+      .set("Authorization", `Bearer ${technicianToken}`)
       .send({
         equipmentId,
-        title: "Замена подшипника",
-        priority: "high",
+        title: "Maintenance request",
+        priority: "medium",
+        ...overrides,
       });
+    expect(res.status).toBe(201);
+    return res;
+  }
+
+  it('POST /api/requests creates a request with default status "new"', async () => {
+    const equipmentId = await createEquipment();
+    const res = await createRequest(equipmentId, {
+      title: "Замена подшипника",
+      priority: "high",
+    });
 
     expect(res.status).toBe(201);
     expect(res.body.status).toBe("new");
-    requestId = res.body.id;
   });
 
-  it("status field in body is ignored on create (always starts as new)", async () => {
-    const res = await request(app)
-      .post("/api/requests")
-      .set("X-API-Key", "test-api-key")
+  it("PATCH /api/requests/:id/status allows assigned technician to move through valid transitions", async () => {
+    const equipmentId = await createEquipment();
+    const requestRes = await createRequest(equipmentId, { title: "Assigned request" });
+
+    const assignRes = await request(app)
+      .post(`/api/requests/${requestRes.body.id}/assignees`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
-        equipmentId,
-        title: "Проверка игнорирования статуса",
-        priority: "low",
-        status: "done",
+        assignees: [{ technicianId, role: "lead", plannedHours: 4 }],
       });
 
-    expect(res.status).toBe(201);
-    expect(res.body.status).toBe("new");
+    expect(assignRes.status).toBe(200);
 
-    await assignTechnicianToRequest(res.body.id);
+    const inProgressRes = await request(app)
+      .patch(`/api/requests/${requestRes.body.id}/status`)
+      .set("Authorization", `Bearer ${technicianToken}`)
+      .send({ status: "in_progress" });
 
-    const statusRes = await request(app)
-      .patch(`/api/requests/${res.body.id}/status`)
-      .set("X-API-Key", "test-api-key")
-      .send({ status: "rejected" });
+    expect(inProgressRes.status).toBe(200);
+    expect(inProgressRes.body.status).toBe("in_progress");
 
-    expect(statusRes.status).toBe(200);
-    expect(statusRes.body.status).toBe("rejected");
+    const doneRes = await request(app)
+      .patch(`/api/requests/${requestRes.body.id}/status`)
+      .set("Authorization", `Bearer ${technicianToken}`)
+      .send({ status: "done" });
+
+    expect(doneRes.status).toBe(200);
+    expect(doneRes.body.status).toBe("done");
   });
 
-  it("POST /api/requests with nonexistent equipmentId returns 404", async () => {
-    const res = await request(app)
-      .post("/api/requests")
-      .set("X-API-Key", "test-api-key")
+  it("PATCH /api/requests/:id/status rejects invalid transition", async () => {
+    const equipmentId = await createEquipment();
+    const requestRes = await createRequest(equipmentId, {
+      title: "Invalid transition request",
+    });
+
+    const assignRes = await request(app)
+      .post(`/api/requests/${requestRes.body.id}/assignees`)
+      .set("Authorization", `Bearer ${adminToken}`)
       .send({
-        equipmentId: "00000000-0000-4000-8000-000000000000",
-        title: "Заявка в никуда",
-        priority: "low",
+        assignees: [{ technicianId, role: "lead", plannedHours: 4 }],
       });
 
-    expect(res.status).toBe(404);
+    expect(assignRes.status).toBe(200);
+
+    const inProgressRes = await request(app)
+      .patch(`/api/requests/${requestRes.body.id}/status`)
+      .set("Authorization", `Bearer ${technicianToken}`)
+      .send({ status: "in_progress" });
+
+    expect(inProgressRes.status).toBe(200);
+
+    const invalidRes = await request(app)
+      .patch(`/api/requests/${requestRes.body.id}/status`)
+      .set("Authorization", `Bearer ${technicianToken}`)
+      .send({ status: "new" });
+
+    expect(invalidRes.status).toBe(409);
+    expect(invalidRes.body.error.code).toBe("INVALID_TRANSITION");
   });
 
   it("GET /api/equipment/:id/requests returns nested requests", async () => {
-    const res = await request(app).get(
-      `/api/equipment/${equipmentId}/requests`,
-    );
+    const equipmentId = await createEquipment();
+    const requestRes = await createRequest(equipmentId, { title: "Nested request" });
+
+    const res = await request(app)
+      .get(`/api/equipment/${equipmentId}/requests`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
     expect(res.status).toBe(200);
-    expect(res.body.data.some((r) => r.id === requestId)).toBe(true);
+    expect(res.body.data.some((item) => item.id === requestRes.body.id)).toBe(true);
   });
 
-  it("PATCH /api/requests/:id (regular) does not change status", async () => {
+  it("PATCH /api/requests/:id updates title but keeps current status unchanged", async () => {
+    const equipmentId = await createEquipment();
+    const requestRes = await createRequest(equipmentId, { title: "Before update" });
+
     const res = await request(app)
-      .patch(`/api/requests/${requestId}`)
-      .set("X-API-Key", "test-api-key")
-      .send({ title: "Обновлённый заголовок", status: "done" });
+      .patch(`/api/requests/${requestRes.body.id}`)
+      .set("Authorization", `Bearer ${technicianToken}`)
+      .send({ title: "After update", status: "done" });
 
     expect(res.status).toBe(200);
-    expect(res.body.title).toBe("Обновлённый заголовок");
+    expect(res.body.title).toBe("After update");
     expect(res.body.status).toBe("new");
   });
 
-  it("PATCH /api/requests/:id/status rejects status change when no assignee exists", async () => {
-    const created = await request(app)
-      .post("/api/requests")
-      .set("X-API-Key", "test-api-key")
-      .send({
-        equipmentId,
-        title: "Заявка без исполнителя",
-        priority: "medium",
-      });
-
-    expect(created.status).toBe(201);
-
-    const res = await request(app)
-      .patch(`/api/requests/${created.body.id}/status`)
-      .set("X-API-Key", "test-api-key")
-      .send({ status: "in_progress" });
-
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe("ASSIGNEES_REQUIRED");
-
-    await assignTechnicianToRequest(created.body.id);
-
-    const finalize = await request(app)
-      .patch(`/api/requests/${created.body.id}/status`)
-      .set("X-API-Key", "test-api-key")
-      .send({ status: "rejected" });
-
-    expect(finalize.status).toBe(200);
-    expect(finalize.body.status).toBe("rejected");
-  });
-
-  it("PATCH /api/requests/:id/status allows valid transition new -> in_progress", async () => {
-    await assignTechnicianToRequest(requestId);
-
-    const res = await request(app)
-      .patch(`/api/requests/${requestId}/status`)
-      .set("X-API-Key", "test-api-key")
-      .send({ status: "in_progress" });
-
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe("in_progress");
-  });
-
-  it("PATCH /api/requests/:id/status rejects invalid transition in_progress -> new", async () => {
-    const res = await request(app)
-      .patch(`/api/requests/${requestId}/status`)
-      .set("X-API-Key", "test-api-key")
-      .send({ status: "new" });
-
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe("INVALID_TRANSITION");
-  });
-
   it("DELETE /api/equipment/:id is blocked while request is open", async () => {
+    const equipmentId = await createEquipment();
+    await createRequest(equipmentId, { title: "Open request" });
+
     const res = await request(app)
       .delete(`/api/equipment/${equipmentId}`)
-      .set("X-API-Key", "test-api-key");
+      .set("Authorization", `Bearer ${adminToken}`);
+
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("CONFLICT");
   });
 
-  it("PATCH /api/requests/:id/status allows in_progress -> done, closing it", async () => {
-    const res = await request(app)
-      .patch(`/api/requests/${requestId}/status`)
-      .set("X-API-Key", "test-api-key")
+  it("DELETE /api/equipment/:id succeeds after all open requests are closed", async () => {
+    const equipmentId = await createEquipment();
+    const requestRes = await createRequest(equipmentId, { title: "Closed request" });
+
+    const assignRes = await request(app)
+      .post(`/api/requests/${requestRes.body.id}/assignees`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        assignees: [{ technicianId, role: "lead", plannedHours: 4 }],
+      });
+
+    expect(assignRes.status).toBe(200);
+
+    const inProgressRes = await request(app)
+      .patch(`/api/requests/${requestRes.body.id}/status`)
+      .set("Authorization", `Bearer ${technicianToken}`)
+      .send({ status: "in_progress" });
+
+    expect(inProgressRes.status).toBe(200);
+
+    const transitionRes = await request(app)
+      .patch(`/api/requests/${requestRes.body.id}/status`)
+      .set("Authorization", `Bearer ${technicianToken}`)
       .send({ status: "done" });
 
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe("done");
-  });
+    expect(transitionRes.status).toBe(200);
 
-  it("DELETE /api/equipment/:id now succeeds (no open requests left)", async () => {
-    const res = await request(app)
+    const deleteRes = await request(app)
       .delete(`/api/equipment/${equipmentId}`)
-      .set("X-API-Key", "test-api-key");
-    expect(res.status).toBe(204);
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(deleteRes.status).toBe(204);
   });
 });

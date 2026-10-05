@@ -6,6 +6,7 @@ import { NotFoundError } from "../errors/NotFoundError.js";
 import { createRequestSchema } from "../validators/requestValidators.js";
 import { RequestAssignee } from "../models/index.js";
 import { ForbiddenError } from "../errors/ForbiddenError.js";
+import { canChangeRequestStatus } from "./authorization.js";
 
 function assertExists(request, id) {
   if (!request) {
@@ -49,13 +50,16 @@ async function changeStatus(id, newStatus, meta, actingUser) {
   const existing = await requestRepository.findById(id);
   assertExists(existing, id);
 
+  let isAssignedTechnician = false;
   if (actingUser.role === "technician") {
-    const isAssigned = await RequestAssignee.findOne({
+    const assignment = await RequestAssignee.findOne({
       where: { requestId: id, technicianId: actingUser.technicianId },
     });
-    if (!isAssigned) {
-      throw new ForbiddenError("Вы не назначены на эту заявку");
-    }
+    isAssignedTechnician = Boolean(assignment);
+  }
+
+  if (!canChangeRequestStatus(actingUser.role, { isAssignedTechnician })) {
+    throw new ForbiddenError("Вы не назначены на эту заявку");
   }
   
   if (!canTransition(existing.status, newStatus)) {

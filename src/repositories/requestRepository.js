@@ -14,6 +14,7 @@ import { NotFoundError } from "../errors/NotFoundError.js";
 import { ConflictError } from "../errors/ConflictError.js";
 import { ValidationError } from "../errors/ValidationError.js";
 import { canTransition } from "../services/statusTransitions.js";
+import { assertValidAssigneeComposition } from "../services/assigneeValidation.js";
 
 const REQUEST_ATTRIBUTES = [
   "id",
@@ -239,6 +240,21 @@ async function remove(id) {
 }
 
 async function replaceAssignees(requestId, assignees) {
+  const composition = assertValidAssigneeComposition(assignees);
+  if (!composition.valid) {
+    throw new ValidationError({
+      issues: [
+        {
+          path: ["assignees"],
+          message:
+            composition.reason === "DUPLICATE_TECHNICIAN"
+              ? "Специалист указан в бригаде более одного раза"
+              : "В бригаде должен быть ровно один специалист с ролью lead",
+        },
+      ],
+    });
+  }
+
   try {
     await sequelize.transaction(async (t) => {
       const request = await MaintenanceRequest.findByPk(requestId, {
