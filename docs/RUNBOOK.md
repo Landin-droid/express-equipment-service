@@ -92,6 +92,15 @@ docker compose logs migrate
 
 Исправьте причину (чаще всего — недоступная БД, неверный пароль, пустые `SEED_*` переменные) и повторите `docker compose up -d`. Применённые миграции повторно не выполняются.
 
+### 5. 502 Bad Gateway от Nginx
+
+**Признаки:** клиент получает `502`, в логах `api` запросов нет, в логах Nginx `connect() failed ... upstream`.
+
+**Причина и действия:** Nginx не достучался до `api`. Если контейнер `api` был пересоздан, Nginx сам подхватит новый адрес в течение ~5 секунд (разрешение имени при каждом запросе). Если `502` не проходит:
+1. `docker compose ps api` — запущен ли контейнер и healthy ли он, `docker compose logs --tail=50 api`.
+2. `docker compose restart api`, при необходимости `docker compose restart nginx`.
+3. Проверить, что `api` слушает порт 3000: `docker compose exec api wget -qO- http://localhost:3000/api/health/live`.
+
 ## Резервная копия и восстановление БД
 
 ```bash
