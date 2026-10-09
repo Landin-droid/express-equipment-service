@@ -1,155 +1,212 @@
 # Equipment Maintenance API
 
-REST API на Express и PostgreSQL для учёта заявок на техническое обслуживание оборудования ветропарка. Сервис ведёт справочник площадок и оборудования, технические паспорта, специалистов и команды заявок, историю статусов, а также аналитические отчёты и прогноз погоды для наружных работ.
+REST API на Express и PostgreSQL для учёта заявок на техническое обслуживание оборудования ветропарка: справочник площадок и оборудования, технические паспорта, специалисты, заявки с контролем жизненного цикла и журналом статусов, назначение бригад, аналитические отчёты и прогноз погоды для наружных работ.
 
-## Требования к окружению
+Сервис защищён аутентификацией (JWT + refresh-cookie) и ролевой моделью, разворачивается одной командой за обратным прокси Nginx и наблюдаем через Prometheus и Grafana.
 
-- Node.js 20+
-- npm 10+
-- Docker Compose с поддержкой Compose v2
+## Схема стека
 
-## Установка и запуск
+```mermaid
+flowchart LR
+    client([Клиент]) -->|:80| nginx[Nginx<br/>reverse proxy]
+    nginx -->|proxy_pass| api[API<br/>Node.js / Express 5]
+    api --> db[(PostgreSQL 18)]
+    migrate[migrate<br/>one-shot] -->|миграции и сиды| db
+    prometheus[Prometheus] -->|scrape /metrics| api
+    grafana[Grafana] -->|PromQL| prometheus
+    grafana -->|SQL| db
+    client -.->|:3001| grafana
+```
 
-Скопируйте `.env.example` в `.env` (`Copy-Item .env.example .env` в PowerShell, `cp .env.example .env` в Bash). Поменяйте демонстрационные значения секретов и паролей до запуска; `.env.example` содержит только локальные примеры и не должен использоваться в production.
+| Сервис | Назначение | Порт на хосте |
+|---|---|---|
+| `nginx` | Обратный прокси, сжатие, таймауты, Basic Auth на `/metrics` | `80` |
+| `api` | Приложение (Express 5, Sequelize 6) | не публикуется |
+| `db` | PostgreSQL 18, данные в томе `pgdata` | `127.0.0.1:${PGPORT}` (только loopback) |
+| `migrate` | Одноразовый сервис: миграции и сиды, затем завершается | — |
+| `prometheus` | Сбор метрик приложения, том `prometheus-data` | не публикуется |
+| `grafana` | Дашборд и алерты, том `grafana-data` | `3001` |
+
+Снаружи приложение и база напрямую недоступны: весь API-трафик идёт через Nginx.
+
+## Развёртывание с нуля
+
+Требования: Docker с Compose v2. Node.js на машине для запуска стека не нужен.
+
+```bash
+git clone https://github.com/Landin-droid/express-equipment-service.git
+cd express-equipment-service
+cp .env.example .env        # PowerShell: Copy-Item .env.example .env
+# заполните в .env все пустые значения (пароли, секреты) — см. таблицу про переменные окружения
+docker compose up -d --build
+```
+Про значения переменных — см. [Переменные окружения](#переменные-окружения).
+
+Порядок старта обеспечивается зависимостями и проверками готовности: `db` (healthcheck `pg_isready`) → `migrate` (применяет миграции и сиды и завершается с кодом 0) → `api` (healthcheck на `/api/health/ready`) → `nginx`. Если миграция упала, `api` не стартует.
+
+Проверка:
+
+```bash
+docker compose ps -a # migrate: Exited (0), остальные Up / healthy
+curl http://localhost/api/health/ready
+# {"status":"ok","database":"up"}
+```
+
+| Адрес | Что там |
+|---|---|
+| `http://localhost/` | Простая веб-страница со списком заявок |
+| `http://localhost/api/docs` | Swagger UI (OpenAPI), можно авторизоваться и выполнять запросы |
+| `http://localhost:3001` | Grafana (`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`) |
+| `http://localhost/metrics` | Метрики Prometheus, Basic Auth (`METRICS_USER` / `METRICS_PASSWORD`) |
+
+Демо-учётные записи создаёт сид из переменных `SEED_*`: администратор и технолог (привязан к специалисту из сида данных). Регистрация через API создаёт пользователей с ролью `viewer`.
+
+Если порт 80 занят другим веб-сервером (например, локальным Apache/IIS), измените публикацию в `compose.yaml` (`"8080:80"`), архитектура от этого не меняется.
+
+Остановка и сброс:
+
+```bash
+docker compose down    # данные сохраняются в томах
+docker compose down -v # ВНИМАНИЕ: удаляет данные БД, Prometheus и Grafana
+```
+
+## Режим разработки
 
 ```bash
 npm install
 docker compose up -d db
-npm run db:deploy
-npm run dev
+npm run db:migrate
+npm run db:seed
+npm run dev # http://localhost:3000, без Nginx
 ```
 
-`npm run db:deploy` — отдельный обязательный шаг развёртывания БД. Он последовательно применяет миграции, затем сиды, и останавливается с ошибкой, если любой шаг завершается неуспешно. Sequelize CLI хранит учёт выполненных миграций и сидов, поэтому повторный запуск не применяет уже учтённые изменения повторно. Выполняйте этот шаг после готовности PostgreSQL и до запуска или обновления API; сервер сам миграции и сиды не запускает. При запуске на хосте команда выполняется из корня проекта и использует `PGHOST`/`PGPORT` из `.env`.
-
-Сервер стартует на `PORT` (по умолчанию `3000`); проверка: `http://localhost:3000/api/health`. PostgreSQL доступен с хоста на `PGPORT` (в примере `5433`). В контейнере API Compose переопределяет подключение на хост `db` и порт `5432`.
-
-Для контейнерного развёртывания запустите PostgreSQL, выполните одноразовый сервис развёртывания БД, затем запускайте API:
-
-```bash
-docker compose up -d db
-docker compose --profile deploy run --build --rm db-deploy
-docker compose up --build api
-```
-
-`db-deploy` использует отдельную сборочную цель с Sequelize CLI и ждёт успешной проверки готовности PostgreSQL. Чтобы поднять весь стек после deploy-step, выполните `docker compose up --build`. PostgreSQL хранит состояние в именованном томе `pgdata`; `docker compose down` его сохраняет. `docker compose down -v` необратимо удаляет данные БД.
-
-Сид рассчитан на однократный запуск в каждой БД и создаёт 2 площадки, 6 единиц оборудования с паспортами, 5 специалистов и 20 заявок во всех статусах, включая назначения и историю изменений. Sequelize CLI хранит отметку о выполнении сида; для повторного заполнения сначала отмените сид.
-
-Данные сида синтетические. Скрипта импорта файлового хранилища из предыдущего кейса в репозитории нет; если нужно сохранить такие данные, экспортируйте их и перенесите отдельным импортом до запуска сида.
-
-### Веб-интерфейс
-
-После запуска сервера откройте `http://localhost:3000` в браузере — доступна простая страница со списком заявок, фильтрами и формой создания.
+Миграции и сиды с хоста используют `PGHOST`/`PGPORT` из `.env` (по умолчанию `localhost:5433`). Внутри Compose `api` и `migrate` подключаются к `db:5432` — эти значения переопределены в `compose.yaml`.
 
 ## Переменные окружения
 
-| Переменная                     | Назначение                                                                                           | Пример                                   |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `PORT`                         | Порт сервера                                                                                         | `3000`                                   |
-| `NODE_ENV`                     | Режим (`development`/`production`/`test`) — в production скрываются внутренние сообщения 500-ошибок  | `development`                            |
-| `CORS_ORIGINS`                 | Разрешённые origin через запятую                                                                     | `http://localhost:5173`                  |
-| `RATE_LIMIT_WINDOW_MS`         | Окно ограничения частоты запросов, мс                                                                | `60000`                                  |
-| `RATE_LIMIT_MAX`               | Макс. запросов за окно                                                                               | `100`                                    |
-| `WEATHER_API_URL`              | URL погодного API (Open-Meteo forecast)                                                              | `https://api.open-meteo.com/v1/forecast` |
-| `REQUEST_TIMEOUT_MS`           | Таймаут запроса к внешнему API                                                                       | `5000`                                   |
-| `WEATHER_MAX_PRECIPITATION_MM` | Порог осадков для пригодности окна работ                                                             | `0`                                      |
-| `WEATHER_MAX_WIND_SPEED_KMH`   | Порог скорости ветра                                                                                 | `20`                                     |
-| `API_KEY`                      | Ключ для изменяющих операций (POST/PATCH/DELETE), заголовок `X-API-Key`                              | сгенерировать самостоятельно             |
-| `POSTGRES_DB`                  | Имя БД, создаваемой контейнером PostgreSQL                                                           | `equipment_maintenance`                  |
-| `POSTGRES_USER`                | Bootstrap-пользователь контейнера; сейчас его использует приложение и Sequelize CLI                  | `user`                                   |
-| `POSTGRES_PASSWORD`            | Пароль `POSTGRES_USER`; задайте собственный локально                                                 | задать самостоятельно                    |
-| `PGHOST`                       | Хост PostgreSQL для процесса приложения/CLI                                                          | `localhost`                              |
-| `PGPORT`                       | Порт PostgreSQL на хосте; внутри Compose API использует `5432`                                       | `5433`                                   |
-| `PGDATABASE`                   | База, к которой подключаются приложение и миграции                                                   | `equipment_maintenance`                  |
-| `PGUSER`, `PGPASSWORD`         | Имя и пароль роли, создаваемой init-скриптом при первом запуске; задайте отдельно от `POSTGRES_USER` | `app_user` / собственный пароль          |
+Все параметры перечислены в `.env.example`; секретов в репозитории нет.
 
-**Важно о DB-роли:** если `PGUSER` совпадает с `POSTGRES_USER`, отдельная роль не создаётся. Даже если задать отдельный `PGUSER`, текущий `src/database/sequelize.js` всё равно подключает API через `POSTGRES_USER`/`POSTGRES_PASSWORD`; ограниченная роль сейчас не используется. Init-скрипт выполняется только при создании пустого тома, поэтому изменение переменных не перенастроит уже созданную БД. Не публикуйте БД и не используйте демонстрационные пароли в production.
+| Переменная | Назначение | Пример |
+|---|---|---|
+| `PORT` | Порт приложения внутри контейнера | `3000` |
+| `NODE_ENV` | `development` / `production` / `test`. В production скрываются детали 500-ошибок и включается флаг `Secure` у refresh-cookie | `development` |
+| `LOG_LEVEL` | Уровень логирования pino (`debug`, `info`, `warn`, `error`, `silent`) | `info` |
+| `CORS_ORIGINS` | Разрешённые origin через запятую | `http://localhost` |
+| `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX` | Общий лимит запросов к `/api` | `60000`, `100` |
+| `WEATHER_API_URL` | URL погодного API (Open-Meteo) | `https://api.open-meteo.com/v1/forecast` |
+| `REQUEST_TIMEOUT_MS` | Таймаут запроса к внешнему API | `5000` |
+| `WEATHER_MAX_PRECIPITATION_MM`, `WEATHER_MAX_WIND_SPEED_KMH` | Пороги пригодности окна для наружных работ | `0`, `20` |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Суперпользователь БД: создание кластера и миграции (DDL) | |
+| `PGHOST`, `PGPORT`, `PGDATABASE` | Параметры подключения (с хоста) | `localhost`, `5433`, `equipment_maintenance` |
+| `PGUSER`, `PGPASSWORD` | Ограниченная роль приложения (только CRUD, без DDL), создаётся init-скриптом при первом запуске тома | |
+| `ACCESS_TOKEN_SECRET` | Секрет подписи access-токена | длинная случайная строка |
+| `ACCESS_TOKEN_TTL` | Срок жизни access-токена | `15m` |
+| `REFRESH_TOKEN_TTL_DAYS` | Срок жизни refresh-токена | `7` |
+| `METRICS_USER`, `METRICS_PASSWORD` | Basic Auth на `/metrics` в Nginx | |
+| `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` | Администратор Grafana | |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Демо-администратор | |
+| `SEED_TECHNICIAN_EMAIL`, `SEED_TECHNICIAN_PASSWORD` | Демо-технолог | |
+
+Init-скрипт Postgres выполняется только при создании пустого тома: смена `PGUSER`/`PGPASSWORD` после первого запуска не перенастроит существующую БД (для этого `docker compose down -v` или `ALTER ROLE`).
+
+## Аутентификация
+
+| Эндпоинт | Назначение |
+|---|---|
+| `POST /api/auth/register` | Регистрация, роль `viewer` |
+| `POST /api/auth/login` | Выдаёт access-токен в теле и refresh-токен в cookie |
+| `POST /api/auth/refresh` | Новый access-токен по refresh-cookie, refresh-токен ротируется |
+| `POST /api/auth/logout` | Отзывает refresh-токен, удаляет cookie |
+| `GET /api/auth/me` | Текущий пользователь и роль |
+
+- **Пароли** хранятся только как хеш bcrypt (12 раундов, соль внутри хеша). Ни пароль, ни хеш не попадают в ответы API и логи.
+- **Access-токен** — JWT, подпись `ACCESS_TOKEN_SECRET`, срок `ACCESS_TOKEN_TTL` (15 минут), передаётся в заголовке `Authorization: Bearer <token>`.
+- **Refresh-токен** — непрозрачная случайная строка (не JWT); в БД хранится только её SHA-256 хеш. Передаётся в cookie `refreshToken`: `HttpOnly`, `Secure` (в production), `SameSite=Strict`, `Path=/api/auth`. При каждом обновлении старый токен отзывается и выдаётся новый: повторное использование украденного токена после легитимного обновления не сработает.
+- **Почему `SameSite=Strict`:** у сервиса нет сценариев входа с переходом с внешних сайтов (OAuth и т.п.), UI и API работают на одном origin через Nginx, поэтому Strict безопаснее Lax и ничего не ломает. Cookie ограничена путём `/api/auth` и не уходит на остальные запросы.
+- **Вход** защищён отдельным лимитом (5 попыток за 15 минут по IP), сообщение «Неверный email или пароль» одинаково для несуществующего пользователя и неверного пароля.
+
+## Роли и права
+
+Чтение доступно любому аутентифицированному пользователю. Запрос без токена — `401`, без достаточных прав — `403`.
+
+| Операция | viewer | technician | admin |
+|---|:-:|:-:|:-:|
+| Чтение: оборудование, заявки, история, сводка по площадке, отчёты, погода | ✓ | ✓ | ✓ |
+| Создание и редактирование заявок (`POST /requests`, `POST /requests/bulk`, `PATCH /requests/:id`) | — | ✓ | ✓ |
+| Смена статуса заявки (`PATCH /requests/:id/status`) | — | только назначенные на него заявки | ✓ любые |
+| Создание, изменение, удаление оборудования | — | — | ✓ |
+| Назначение и снятие бригады (`POST/DELETE .../assignees`) | — | — | ✓ |
+| Удаление заявок | — | — | ✓ |
+
+Публичные эндпоинты: `/api/auth/register|login|refresh|logout`, `/api/health/*`, `/api/docs`. `/metrics` защищён Basic Auth на уровне Nginx. Управление ролями через API не предусмотрено: роль меняется в БД (`UPDATE users SET role = ...`).
 
 ## Эндпоинты
 
-| Метод  | Путь                                  | Назначение                                                                                                | Требует `X-API-Key` |
-| ------ | ------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------- |
-| GET    | `/api/health`                         | Проверка доступности сервиса                                                                              | нет                 |
-| GET    | `/api/equipment`                      | Список оборудования (фильтры: `type`, `status`; сортировка `sort`; пагинация `page`, `limit`)             | нет                 |
-| POST   | `/api/equipment`                      | Создание оборудования                                                                                     | да                  |
-| GET    | `/api/equipment/:id`                  | Карточка оборудования                                                                                     | нет                 |
-| PATCH  | `/api/equipment/:id`                  | Частичное обновление                                                                                      | да                  |
-| DELETE | `/api/equipment/:id`                  | Удаление (409, если есть незакрытые заявки)                                                               | да                  |
-| GET    | `/api/equipment/:id/requests`         | Заявки по конкретной единице оборудования                                                                 | нет                 |
-| GET    | `/api/equipment/:id/weather`          | Прогноз погоды и пригодность окна для наружных работ                                                      | нет                 |
-| GET    | `/api/requests`                       | Список заявок (фильтры: `status`, `priority`, `equipmentId`, `dateFrom`, `dateTo`; сортировка; пагинация) | нет                 |
-| POST   | `/api/requests`                       | Создание заявки                                                                                           | да                  |
-| POST   | `/api/requests/bulk`                  | Массовый импорт заявок с частичным успехом (207)                                                          | да                  |
-| GET    | `/api/requests/:id`                   | Карточка заявки                                                                                           | нет                 |
-| PATCH  | `/api/requests/:id`                   | Редактирование полей заявки (без смены статуса)                                                           | да                  |
-| PATCH  | `/api/requests/:id/status`            | Смена статуса с проверкой допустимости перехода                                                           | да                  |
-| POST   | `/api/requests/:id/assignees`         | Замена команды заявки; требуется ровно один `lead`                                                        | да                  |
-| DELETE | `/api/requests/:id/assignees/:userId` | Снятие специалиста с заявки                                                                               | да                  |
-| GET    | `/api/requests/:id/history`           | История смены статусов заявки                                                                             | нет                 |
-| DELETE | `/api/requests/:id`                   | Удаление заявки                                                                                           | да                  |
-| GET    | `/api/sites/:id/summary`              | Сводный отчёт по площадке                                                                                 | нет                 |
-| GET    | `/api/reports/equipment-load`         | Нагрузка на оборудование                                                                                  | нет                 |
+| Метод | Путь | Назначение |
+|---|---|---|
+| GET | `/api/health/live` | Жизнеспособность процесса |
+| GET | `/api/health/ready` | Готовность (проверяет БД), `503` при недоступной БД. `/api/health` — алиас |
+| GET | `/metrics` | Метрики Prometheus |
+| GET | `/api/docs` | Swagger UI |
+| GET / POST | `/api/equipment` | Список (фильтры `type`, `status`, сортировка, пагинация) / создание |
+| GET / PATCH / DELETE | `/api/equipment/:id` | Карточка с паспортом / обновление / удаление |
+| GET | `/api/equipment/:id/requests` | Заявки по оборудованию |
+| GET | `/api/equipment/:id/weather` | Прогноз и пригодность для наружных работ |
+| GET / POST | `/api/requests` | Список (фильтры `status`, `priority`, `equipmentId`, `dateFrom`, `dateTo`) / создание заявок |
+| POST | `/api/requests/bulk` | Массовый импорт, частичный успех (`207`) |
+| GET / PATCH / DELETE | `/api/requests/:id` | Карточка с назначенными специалистами / правка полей / удаление |
+| PATCH | `/api/requests/:id/status` | Смена статуса с проверкой перехода |
+| POST | `/api/requests/:id/assignees` | Замена бригады (ровно один `lead`) |
+| DELETE | `/api/requests/:id/assignees/:userId` | Снятие специалиста |
+| GET | `/api/requests/:id/history` | История статусов |
+| GET | `/api/sites/:id/summary` | Сводка по площадке |
+| GET | `/api/reports/equipment-load` | Нагрузка на оборудование (raw SQL, JOIN, GROUP BY, HAVING) |
 
-Списочные эндпоинты возвращают `{ data: [...], meta: { total, page, limit } }`.
+Полное описание параметров, тел и ответов — в Swagger UI (`/api/docs`) и в `docs/openapi.yaml`. Списки возвращают `{ data: [...], meta: { total, page, limit } }`.
 
-## Схема данных
+## Модель данных
 
 ```mermaid
 erDiagram
-  SITES ||--o{ EQUIPMENT : contains
-  EQUIPMENT ||--o| EQUIPMENT_PASSPORTS : has
-  EQUIPMENT ||--o{ MAINTENANCE_REQUESTS : receives
-  TECHNICIANS ||--o{ MAINTENANCE_REQUESTS : authors
-  MAINTENANCE_REQUESTS ||--o{ REQUEST_STATUS_HISTORY : records
-  TECHNICIANS ||--o{ REQUEST_STATUS_HISTORY : changes
-  MAINTENANCE_REQUESTS ||--o{ REQUEST_ASSIGNEES : has
-  TECHNICIANS ||--o{ REQUEST_ASSIGNEES : assigned
+    SITES ||--o{ EQUIPMENT : contains
+    EQUIPMENT ||--o| EQUIPMENT_PASSPORTS : has
+    EQUIPMENT ||--o{ MAINTENANCE_REQUESTS : receives
+    TECHNICIANS ||--o{ MAINTENANCE_REQUESTS : authors
+    MAINTENANCE_REQUESTS ||--o{ REQUEST_STATUS_HISTORY : records
+    TECHNICIANS ||--o{ REQUEST_STATUS_HISTORY : changes
+    MAINTENANCE_REQUESTS ||--o{ REQUEST_ASSIGNEES : has
+    TECHNICIANS ||--o{ REQUEST_ASSIGNEES : assigned
+    TECHNICIANS ||--o| USERS : account
+    USERS ||--o{ REFRESH_TOKENS : sessions
 ```
 
-`request_assignees` реализует связь N:M между заявками и специалистами. Составной первичный ключ `(request_id, technician_id)` запрещает повторно назначить одного специалиста на одну заявку; таблица также хранит роль и плановые часы. `equipment_passports.equipment_id` уникален, поэтому паспорт связан ровно с одной единицей оборудования.
+- `request_assignees` — связь N:M с составным ключом `(request_id, technician_id)`, ролью (`lead`/`member`) и плановыми часами.
+- `equipment_passports.equipment_id` уникален — связь 1:1.
+- Схема в 3НФ; статусы, приоритеты и роли — нативные ENUM PostgreSQL; все ключи — `uuid`.
+- Правила удаления: площадку с оборудованием удалить нельзя (`RESTRICT`); оборудование с заявками `new`/`in_progress` удалить нельзя (`409`, проверка в транзакции), закрытые заявки удаляются каскадом вместе с историей и назначениями; специалиста, являющегося автором заявок или записей журнала, удалить нельзя (`RESTRICT`).
+- `users.technician_id` связывает учётную запись технолога с записью специалиста: по ней проверяется, назначен ли он на заявку.
 
-Схема следует 3НФ: площадки, оборудование, паспорта, заявки, специалисты, история и назначения хранятся в отдельных таблицах; атрибуты каждой сущности зависят от её ключа, а данные специалиста и оборудования не дублируются в заявках/назначениях. Типы статусов, приоритетов и ролей ограничены PostgreSQL ENUM, внешние ключи обеспечивают ссылочную целостность.
-
-История статусов не редактируется отдельными API-операциями. Удаление заявки каскадно удаляет её историю и назначения; удаление оборудования каскадно удаляет паспорта и заявки. Репозиторий запрещает удалять оборудование, пока у него есть заявки `new` или `in_progress` (ответ `409`); если все заявки закрыты, удаление оборудования удалит связанные заявки и их историю. Удаление площадки с привязанным оборудованием запрещено FK (`RESTRICT`).
-
-## Схема переходов статуса заявки
+### Жизненный цикл заявки
 
 ```mermaid
 stateDiagram-v2
+    [*] --> new
     new --> in_progress
     new --> rejected
     in_progress --> done
     in_progress --> rejected
 ```
 
-Из статусов `done` и `rejected` переходы запрещены. Попытка недопустимого перехода — `409 CONFLICT` (код ошибки `INVALID_TRANSITION`).
+Из `done` и `rejected` переходов нет (`409 INVALID_TRANSITION`). Перевод в `in_progress` без назначенной бригады — `409 ASSIGNEES_REQUIRED`.
 
-## Аналитические отчёты
+### Границы транзакций
 
-- `GET /api/sites/:id/summary` возвращает количество заявок по статусам и приоритетам и среднее время закрытия в часах; если закрытых заявок нет, среднее равно `null`. Закрывающими считаются статусы `done` и `rejected`.
-- `GET /api/reports/equipment-load` возвращает `equipmentId`, `equipmentName`, `serialNumber`, `requestCount`, `closedRequestCount`, `plannedHours` и `lastServiceAt`; последняя дата равна `null`, если оборудование не обслуживалось через заявку со статусом `done`. `dateFrom` и `dateTo` ограничивают период по `maintenance_requests.created_at`; `minRequests` фильтрует группы. `sort` принимает `equipmentName`, `requestCount`, `closedRequestCount`, `plannedHours` или `lastServiceAt`, `direction` — `ASC` или `DESC`. Значения по умолчанию: `minRequests=1`, `sort=requestCount`, `direction=DESC`, `limit=50`, `offset=0`; допустимы `limit` от 1 до 100 и `offset` от 0 до 100000.
-
-Прямой SQL отчёта использует bind-параметры; имя колонки и направление сортировки выбираются из серверного белого списка. Ответ списка имеет вид `{ data: [...], meta: { total, limit, offset } }`.
-
-**Статус валидации отчёта:** сейчас общий middleware возвращает `422 VALIDATION_ERROR` для неверных query-параметров, в том числе за пределами `limit`/`offset`. В задании для таких диапазонов требуется `400`; этот статус пока не реализован в маршруте отчёта.
-
-## Миграции и откат
-
-Миграции создают схему через Sequelize CLI. Для штатного развертывания используйте единый шаг `npm run db:deploy` (или `docker compose --profile deploy run --build --rm db-deploy` для контейнеров), который выполняет миграции и сиды в заданном порядке. Отменить последний сид: `npx sequelize-cli db:seed:undo`; отменить все сиды: `npx sequelize-cli db:seed:undo:all`.
-
-Для отката схемы сначала отмените сиды, затем миграции:
-
-```bash
-npx sequelize-cli db:seed:undo:all
-npx sequelize-cli db:migrate:undo:all
-npm run db:deploy
-```
-
-Откат всех миграций удаляет таблицы и данные в настроенной БД. Используйте его только для локального/тестового окружения или после резервного копирования.
+- Создание заявки: заявка и первая запись журнала статусов.
+- Смена статуса: `SELECT ... FOR UPDATE` строки заявки, проверка перехода и бригады, обновление и запись в журнал. Любая ошибка — полный откат; параллельная смена статуса одной заявки сериализуется блокировкой.
+- Замена бригады: блокировка заявки, удаление прежних назначений, вставка новых, проверка «ровно один lead»; нарушение откатывает всё, прежняя бригада остаётся.
+- Удаление оборудования: блокировка строки и проверка открытых заявок в одной транзакции.
 
 ## Формат ответа об ошибке
-
-Все ошибки API возвращаются в едином формате:
 
 ```json
 {
@@ -162,244 +219,109 @@ npm run db:deploy
 }
 ```
 
-`details` присутствует только для ошибок валидации. `requestId` возвращается в каждом ответе об ошибке и в заголовке `X-Request-Id` любого ответа — по нему можно найти соответствующую запись в логах сервера.
+`requestId` совпадает с заголовком `X-Request-Id`, записью в `access_log` Nginx (`rid=`) и логами приложения.
 
-| Код ошибки                                | HTTP-статус | Когда возникает                                             |
-| ----------------------------------------- | ----------- | ----------------------------------------------------------- |
-| `VALIDATION_ERROR`                        | 422         | Некорректные данные в body/params/query                     |
-| `NOT_FOUND`                               | 404         | Сущность или маршрут не найдены                             |
-| `CONFLICT`                                | 409         | Дубль serialNumber, удаление equipment с открытыми заявками |
-| `INVALID_TRANSITION`                      | 409         | Попытка недопустимого перехода статуса заявки               |
-| `UNAUTHORIZED`                            | 401         | Отсутствует или неверен `X-API-Key` для изменяющей операции |
-| `RATE_LIMIT_EXCEEDED`                     | 429         | Превышен лимит запросов                                     |
-| `WEATHER_TIMEOUT` / `WEATHER_UNAVAILABLE` | 503         | Внешний погодный API не ответил вовремя или недоступен      |
-| `INTERNAL_ERROR`                          | 500         | Непредвиденная ошибка сервера (детали скрыты в production)  |
-
-Ошибки Zod-валидации body, params и query сейчас возвращаются как `422 VALIDATION_ERROR`. Синтаксически неверный JSON обрабатывается Express как `400`. Исключение, требуемое заданием для диапазона `limit`/`offset` отчёта, отмечено в разделе «Аналитические отчёты».
-
-## Примеры запросов и ответов
-
-### Создание оборудования
-
-Запрос:
-
-```http
-POST /api/equipment
-Content-Type: application/json
-X-API-Key: <ключ>
-
-{
-  "name": "Turbine A",
-  "type": "turbine",
-  "serialNumber": "SN-001",
-  "location": { "lat": 56.50049, "lon": 84.98216 },
-  "status": "operational",
-  "installedAt": "2024-01-01"
-}
-```
-
-Ответ `201 Created` (заголовок `Location: /api/equipment/<id>`):
-
-```json
-{
-  "id": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
-  "name": "Turbine A",
-  "type": "turbine",
-  "serialNumber": "SN-001",
-  "location": { "lat": 60.1, "lon": 24.9 },
-  "status": "operational",
-  "installedAt": "2024-01-01",
-  "createdAt": "2026-09-20T10:00:00.000Z",
-  "updatedAt": "2026-09-20T10:00:00.000Z"
-}
-```
-
-### Ошибка валидации
-
-Запрос:
-
-```http
-POST /api/equipment
-Content-Type: application/json
-X-API-Key: <ключ>
-
-{ "type": "turbine" }
-```
-
-Ответ `422 Unprocessable Entity`:
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Некорректные данные запроса",
-    "details": [
-      { "field": "name", "message": "Required" },
-      { "field": "serialNumber", "message": "Required" },
-      { "field": "location", "message": "Required" },
-      { "field": "status", "message": "Required" },
-      { "field": "installedAt", "message": "Required" }
-    ],
-    "requestId": "a1b2c3d4"
-  }
-}
-```
-
-### Недопустимый переход статуса
-
-Запрос:
-
-```http
-PATCH /api/requests/<id>/status
-Content-Type: application/json
-X-API-Key: <ключ>
-
-{ "status": "done" }
-```
-
-(если текущий статус заявки — `new`)
-
-Ответ `409 Conflict`:
-
-```json
-{
-  "error": {
-    "code": "INVALID_TRANSITION",
-    "message": "Переход из \"new\" в \"done\" недопустим",
-    "requestId": "e5f6a7b8"
-  }
-}
-```
-
-### Массовый импорт заявок (частичный успех)
-
-Запрос:
-
-```http
-POST /api/requests/bulk
-Content-Type: application/json
-X-API-Key: <ключ>
-
-{
-  "items": [
-    { "equipmentId": "<id>", "title": "Успешная заявка", "priority": "low" },
-    { "equipmentId": "00000000-0000-4000-8000-000000000000", "title": "Несуществующее оборудование", "priority": "low" }
-  ]
-}
-```
-
-Ответ `207 Multi-Status`:
-
-```json
-{
-  "summary": { "total": 2, "succeeded": 1, "failed": 1 },
-  "results": [
-    { "index": 0, "success": true, "data": { "id": "...", "status": "new" } },
-    {
-      "index": 1,
-      "success": false,
-      "error": {
-        "code": "NOT_FOUND",
-        "message": "Оборудование с id=... не найдено"
-      }
-    }
-  ]
-}
-```
-
-### Запрос без API-ключа на изменяющую операцию
-
-Ответ `401 Unauthorized`:
-
-```json
-{
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Требуется корректный API-ключ",
-    "requestId": "c3d4e5f6"
-  }
-}
-```
+| Код | HTTP | Когда |
+|---|---|---|
+| `VALIDATION_ERROR` | 422 | Некорректные body/params/query |
+| `UNAUTHORIZED` | 401 | Нет или недействителен токен, неверные учётные данные |
+| `FORBIDDEN` | 403 | Недостаточно прав |
+| `NOT_FOUND` | 404 | Сущность или маршрут не найдены |
+| `CONFLICT` | 409 | Дубли, удаление оборудования с открытыми заявками |
+| `INVALID_TRANSITION` | 409 | Недопустимый переход статуса |
+| `ASSIGNEES_REQUIRED` | 409 | Перевод в работу без бригады |
+| `RATE_LIMIT_EXCEEDED` | 429 | Превышен лимит запросов или попыток входа |
+| `WEATHER_TIMEOUT` / `WEATHER_UNAVAILABLE` | 503 | Погодный API недоступен |
+| `INTERNAL_ERROR` | 500 | Непредвиденная ошибка (детали скрыты в production) |
 
 ## Безопасность
 
-### Аутентификация по API-ключу
+- Nginx: заголовки `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`; приложение доверяет прокси (`trust proxy`), поэтому лимиты и логи видят реальный IP клиента. Заданы таймауты проксирования, `client_max_body_size 1m`, `gzip`.
+- `/metrics` закрыт Basic Auth (`.htpasswd` генерируется при старте контейнера из переменных окружения). IP-фильтр по подсети Docker не используется: на Docker Desktop трафик с хоста выглядит для Nginx как внутренний.
+- `helmet`, явный список CORS-источников, ограничение тела запроса (100 КБ), общий лимит запросов и отдельный лимит на вход.
+- Приложение работает под ограниченной ролью БД без права DDL; контейнеры `api` и `migrate` запускаются не от root, `dev`-зависимости в образ `api` не попадают.
+- SQL-запросы параметризованы (`bind`), поля сортировки проверяются по белому списку.
 
-Все изменяющие операции (`POST`, `PATCH`, `DELETE`) требуют заголовок `X-API-Key`, значение которого сверяется с `API_KEY` из окружения. `GET`-эндпоинты открыты без ключа. При отсутствии или несовпадении ключа — `401 UNAUTHORIZED`.
+## Мониторинг
 
-### CORS
+Prometheus опрашивает `api:3000/metrics` внутри сети Compose. Grafana поднимается с автоматически подключёнными источниками данных и дашбордом (provisioning из `deploy/grafana/`), ручная настройка не нужна.
 
-Разрешённые источники задаются явным списком через переменную окружения `CORS_ORIGINS` (через запятую), `*` не используется. Запросы без заголовка `Origin` (curl, Postman, серверные вызовы) разрешены — иначе тестирование через Postman было бы невозможно.
+Дашборд **Equipment Maintenance Service**:
 
-### Rate limiting
+| Панель | Источник |
+|---|---|
+| Интенсивность запросов по маршрутам | Prometheus |
+| Доля ответов 4xx и 5xx | Prometheus |
+| Время ответа p95 | Prometheus |
+| Доступность сервиса (`up`) | Prometheus |
+| Заявки по статусам и приоритетам | PostgreSQL |
+| Среднее время закрытия заявки | PostgreSQL |
+| Нагрузка на оборудование (топ-10) | PostgreSQL |
 
-Все маршруты `/api/*`, кроме `/api/health`, ограничены по частоте запросов (`RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`). При превышении — `429` с заголовками `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`. `/api/health` не ограничен, чтобы не мешать мониторингу.
+Приложение отдаёт `http_requests_total` и `http_request_duration_seconds` (метка `route` — шаблон пути, а не реальный URL) и стандартные метрики процесса Node.js.
 
-### Прочее
-
-- `helmet()` — стандартный набор защитных HTTP-заголовков, включая `Content-Security-Policy`. Из-за этого скрипт веб-интерфейса (`public/script.js`) вынесен в отдельный файл, а не оставлен инлайн в HTML — политика `script-src 'self'` блокирует инлайн-скрипты, и ослаблять ее ради одной страницы не стоило.
-- Тело запроса ограничено 100kb (`express.json({ limit: '100kb' })`).
-- Секреты и параметры окружения не коммитятся — в репозитории только `.env.example`.
-- В `NODE_ENV=production` в ответах об ошибках скрываются внутренние сообщения и стек-трейсы непредвиденных (500) ошибок.
-
-### Cookie
-
-Проект не использует cookie — авторизация построена на API-ключе, передаваемом в заголовке запроса. Поэтому флаги `HttpOnly`/`Secure`/`SameSite` в этом решении неприменимы.
-
-## Архитектура и структура проекта
-
-Слоистая архитектура: **маршруты → контроллеры → сервисы → репозитории**. Бизнес-логика находится в сервисах, репозитории работают с PostgreSQL через Sequelize. Прямой SQL используется для отчёта по нагрузке на оборудование.
-
-```
-src/
-  app.js              # сборка приложения (используется в тестах)
-  server.js           # запуск сервера, отделён от app.js
-  routes/             # объявление путей, без бизнес-логики
-  controllers/        # разбор req/res, вызов сервисов
-  services/           # бизнес-логика: equipmentService, requestService,
-                       # statusTransitions.js, weatherService.js
-  repositories/        # доступ к данным через Sequelize и SQL
-  database/migrations/ # версионируемая схема PostgreSQL
-  database/seeders/    # демонстрационные данные
-  middlewares/        # requestId, validate, apiKeyAuth, errorHandler, notFoundHandler
-  validators/          # Zod-схемы для body/params/query
-  errors/              # AppError и наследники
-  config/              # corsConfig.js, rateLimitConfig.js, weatherConfig.js
-scripts/
-  db-deploy.js         # последовательный шаг применения миграций и сидов
-public/                # статическая HTML-страница (index.html, script.js)
-tests/                 # Jest + Supertest
-docs/postman/          # Postman-коллекция Case 3
-compose.yaml, Dockerfile
-```
-
-## Особенности реализации на Express 5
-
-- Async-обработчики в Express 5 автоматически передают отклонённые промисы в error-handler (эквивалент `next(err)`), поэтому кастомный `asyncHandler`/`express-async-errors` не используется — все контроллеры представляют собой простые `async function`.
-- `req.query` в Express 5 — read-only геттер. Результат валидации query-параметров кладётся не обратно в `req.query`, а в `req.valid.query`; из соображений единообразия то же самое сделано и для `req.valid.body`/`req.valid.params`.
+**Оповещение:** правило `High 5xx error ratio` срабатывает, когда доля ответов 5xx выше 5% в течение 5 минут. Порядок действий при срабатывании — в [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Тестирование
 
-### Postman
-
-Коллекция — [`docs/postman/Equipment Maintenance API.postman_collection.json`](docs/postman/Equipment%20Maintenance%20API.postman_collection.json). Перед запуском Collection Runner выполните отдельный шаг `npm run db:deploy` (или контейнерный deploy-step), затем задайте переменные коллекции согласно настройке API; `baseUrl` по умолчанию `http://localhost:3000`. Demo IDs площадки, оборудования и специалистов соответствуют фиксированным ID сида `dataSeed.cjs`.
-
-Коллекция содержит позитивные сценарии назначения/снятия специалиста, истории заявки, сводки площадки и отчёта по оборудованию. Группа `Case 3 Negative Scenarios` проверяет 404 для отсутствующего специалиста, 409 при дублировании специалиста и переводе в `in_progress` без команды, а также 422 для команды без `lead`. Запускайте запросы в порядке коллекции: setup-запросы записывают созданные ID в переменные, cleanup удаляет временные заявки.
-
-### Автотесты (Jest + Supertest)
-
 ```bash
+docker compose up -d db
 npm test
 ```
 
-Перед запуском убедитесь, что `PGDATABASE` указывает на отдельную тестовую БД и схема создана миграциями. Jest выставляет `NODE_ENV=test`, но runtime-конфигурация Sequelize сейчас подключается к имени из `PGDATABASE` напрямую.
+Одна команда прогоняет модульные и интеграционные тесты (Jest + Supertest) и печатает отчёт о покрытии (HTML-отчёт в `coverage/`). Тесты изолированы: используется отдельная БД `<PGDATABASE>_test` (создаётся и мигрируется автоматически), данные очищаются перед каждым тестом, внешний погодный API подменён заглушкой.
 
-Тесты покрывают CRUD equipment/requests, переходы статусов, вложенные роуты, отчётные endpoints и погодный эндпоинт (с замоканным `fetch`).
+- Модульные: переходы статусов, правило «ровно один lead», проверка прав по ролям.
+- Интеграционные: регистрация, вход, refresh и logout, `401` без токена, `403` для недостаточных прав, CRUD, `409` на конфликты, отчёты, сводка, погода.
 
-## Дополнительные возможности
+Postman-коллекция лежит в `docs/postman/` и включает сценарии аутентификации и негативные случаи.
 
-- **Docker Compose** — PostgreSQL хранит состояние в именованном томе `pgdata`.
-- **Автотесты Jest + Supertest** — см. раздел «Тестирование».
-- **Аутентификация по API-ключу** — заголовок `X-API-Key` для всех изменяющих операций.
-- **Массовый импорт заявок** — `POST /api/requests/bulk`, до 50 записей за раз, частичный успех с отчётом по каждой записи (`207 Multi-Status`).
-- **HTML-страница** — `public/index.html` + `public/script.js`, список заявок с фильтрами и форма создания, работает через `fetch` к тому же серверу.
+## Структура проекта
+
+```
+src/
+  app.js, server.js        # сборка приложения отделена от запуска
+  routes/ controllers/ services/ repositories/
+  models/                  # модели и ассоциации Sequelize
+  database/                # подключение, config.cjs, migrations/, seeders/
+  middlewares/             # auth, validate, requestId, requestLogger, metrics, errorHandler
+  validators/              # Zod-схемы
+  errors/  config/
+deploy/
+  nginx/                   # Dockerfile, nginx.conf, генерация .htpasswd
+  prometheus/              # prometheus.yml
+  grafana/                 # provisioning: datasources, dashboards, alerting; JSON дашборда
+docs/
+  openapi.yaml  RUNBOOK.md  postman/
+tests/                     # unit/, integration/ и сценарные тесты
+db/init/                   # init-скрипт роли приложения
+Dockerfile  compose.yaml
+```
+
+Слои: **маршруты → контроллеры → сервисы → репозитории**. Бизнес-логика — в сервисах, SQL и Sequelize — только в репозиториях.
+
+## Архитектурные решения
+
+- **Express 5**: асинхронные ошибки обработчиков попадают в error-handler автоматически, собственный `asyncHandler` не нужен. `req.query` в Express 5 доступен только для чтения, поэтому результат валидации лежит в `req.valid.*`.
+- **Zod** для валидации body, params и query одним middleware; ошибка содержит перечень полей. Статус `422` для ошибок валидации.
+- **Репозиторий скрывает схему**: внешний контракт API сохранён при переходе на PostgreSQL (поле `location` вычисляется из площадки, `siteId` — расширение).
+- **Refresh-токены непрозрачные и хранятся хешем** с ротацией: отзыв — запись в БД, без дополнительных секретов.
+- **Гибридный мониторинг**: технические панели строятся по метрикам Prometheus, прикладные читают PostgreSQL напрямую теми же запросами, что и отчёты API.
+- **`request id` сквозной**: генерируется Nginx (`$request_id`), приложение переиспользует его в логах и ответах.
+- **Миграции — отдельный шаг развёртывания** (сервис `migrate`): DDL выполняет суперпользователь, приложение живёт с урезанными правами.
+
+## Известные ограничения
+
+- HTTPS не настроен: TLS терминируется вне стека, Nginx слушает только `80`. Флаг `Secure` у cookie включается при `NODE_ENV=production` и требует HTTPS (браузеры делают исключение для `localhost`).
+- Grafana опубликована напрямую на `3001`, а не через Nginx.
+- Нет контакт-пойнта для алертов; срабатывание видно только в интерфейсе Grafana.
+- Лимиты запросов хранятся в памяти процесса `api`: при нескольких репликах счётчики не общие.
+- Просроченные refresh-токены не удаляются фоновой задачей.
+- Управления пользователями и ролями через API нет; `OpenAPI` описывается вручную и требует синхронизации с кодом.
+- Недоступность погодного API возвращает `503` и учитывается в доле 5xx, поэтому может сработать алерт без неисправности самого сервиса.
+- Ограничения `limit`/`offset` отчёта возвращают `422`, а не `400` из текста задания, ради единообразия с остальным API.
+- При запуске под Windows через `nodemon` сигналы остановки не доходят до процесса; корректное завершение проверяется через Docker (`docker compose stop api`) или прямым `node src/server.js`.
+
+## Эксплуатация
+
+Где смотреть логи и метрики, что делать при типовых отказах и как откатить миграции — в [docs/RUNBOOK.md](docs/RUNBOOK.md).
