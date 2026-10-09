@@ -39,14 +39,16 @@
     },
     {
       "id": 3,
-      "title": "Response time p95",
+      "title": "Response time p95 (ромбы = requestId)",
       "type": "timeseries",
+      "description": "Ромбы на графике — exemplars. Наведите курсор: в подсказке будет requestId запроса; найти его в логах: docker compose logs api nginx | grep <requestId>",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
-          "legendFormat": "p95"
+          "legendFormat": "p95",
+          "exemplar": true
         }
       ]
     },
