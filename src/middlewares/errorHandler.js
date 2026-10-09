@@ -6,9 +6,9 @@ export function errorHandler(err, req, res, next) {
   const statusCode = isKnownError ? err.statusCode : 500;
   const code = isKnownError ? err.code : "INTERNAL_ERROR";
 
-  const isProduction = process.env.NODE_ENV === "production";
+  const exposeDetails = process.env.NODE_ENV === "development";
   const message =
-    isKnownError || !isProduction ? err.message : "Внутренняя ошибка сервера";
+    isKnownError || !exposeDetails ? err.message : "Внутренняя ошибка сервера";
 
   if (!isKnownError) {
     logger.error({ requestId: req.requestId, err }, "Unexpected error");
