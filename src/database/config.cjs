@@ -8,6 +8,8 @@ const base = {
   username: process.env.POSTGRES_USER,
   password: process.env.POSTGRES_PASSWORD,
   dialect: "postgres",
+  seederStorage: "sequelize",
+  seederStorageTableName: "sequelize_data",
 };
 
 module.exports = {

@@ -1,4 +1,4 @@
-#установка зависимостей и подготовка кода
+# установка зависимостей и подготовка кода
 FROM node:20-alpine AS base
 WORKDIR /app
 COPY package*.json ./
@@ -7,17 +7,16 @@ COPY package*.json ./
 FROM base AS dev-deps
 RUN npm ci
 
-# Изолированный образ для миграций и сидов; CLI доступен из dev-зависимостей.
-FROM dev-deps AS db-deploy
-COPY .sequelizerc ./
-COPY scripts/ ./scripts/
-COPY src/ ./src/
-USER node
-CMD ["npm", "run", "db:deploy"]
-
 # продакшн-зависимости
 FROM base AS prod-deps
 RUN npm ci --omit=dev
+
+# применение миграций и сидов
+FROM dev-deps AS migrate
+COPY --chown=node:node .sequelizerc ./
+COPY --chown=node:node src/ ./src/
+USER node
+CMD ["sh", "-c", "node_modules/.bin/sequelize-cli db:migrate && node_modules/.bin/sequelize-cli db:seed:all"]
 
 # финальный образ
 FROM node:20-alpine AS runtime

@@ -22,28 +22,30 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-  db-deploy:
+  migrate:
     build:
       context: .
-      target: db-deploy
-    container_name: equipment-maintenance-db-deploy
+      target: migrate
     depends_on:
       db:
         condition: service_healthy
     env_file:
       - .env
     environment:
-      NODE_ENV: production
       PGHOST: db
       PGPORT: 5432
-    profiles: ["deploy"]
+    restart: "no"
   api:
-    build: .
+    build:
+      context: .
+      target: runtime
     container_name: equipment-maintenance-api
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:
