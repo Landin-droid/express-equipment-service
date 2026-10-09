@@ -72,6 +72,11 @@ describe("Equipment load report", () => {
     return requestRes.body;
   }
 
+  it("requires authentication", async () => {
+    const response = await request(app).get("/api/reports/equipment-load");
+    expect(response.status).toBe(401);
+  });
+
   it("aggregates request counts, planned hours, and last service time", async () => {
     const equipmentId = await createEquipment();
     await createRequest(equipmentId, {
@@ -85,9 +90,11 @@ describe("Equipment load report", () => {
       status: "new",
     });
 
-    const response = await request(app).get(
+    const response = await request(app)
+    .get(
       "/api/reports/equipment-load?minRequests=2&sort=plannedHours&direction=DESC",
-    );
+    )
+    .set("Authorization", `Bearer ${adminToken}`)
 
     expect(response.status).toBe(200);
     const row = response.body.data.find((item) => item.equipmentId === equipmentId);
@@ -113,9 +120,11 @@ describe("Equipment load report", () => {
       status: "new",
     });
 
-    const response = await request(app).get(
+    const response = await request(app)
+    .get(
       "/api/reports/equipment-load?dateFrom=2099-01-01T00:00:00.000Z&minRequests=1",
-    );
+    )
+    .set("Authorization", `Bearer ${adminToken}`);
 
     expect(response.status).toBe(200);
     expect(response.body.data.some((item) => item.equipmentId === equipmentId)).toBe(false);
@@ -129,7 +138,9 @@ describe("Equipment load report", () => {
     "sort=requestCount%3BDROP%20TABLE%20equipment",
     "direction=SIDEWAYS",
   ])("rejects invalid query parameter: %s", async (query) => {
-    const response = await request(app).get(`/api/reports/equipment-load?${query}`);
+    const response = await request(app)
+    .get(`/api/reports/equipment-load?${query}`)
+    .set("Authorization", `Bearer ${adminToken}`);
 
     expect(response.status).toBe(422);
     expect(response.body.error.code).toBe("VALIDATION_ERROR");

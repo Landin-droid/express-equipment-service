@@ -1,5 +1,6 @@
 process.env.NODE_ENV = "test";
-process.env.API_KEY = "test-api-key";
+process.env.LOG_LEVEL = "silent";
+process.env.DOTENV_CONFIG_QUIET = "true";
 
 module.exports = {
   testEnvironment: "node",
