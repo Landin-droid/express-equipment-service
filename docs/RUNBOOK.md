@@ -7,6 +7,7 @@
 | Что | Где |
 |---|---|
 | Состояние контейнеров | `docker compose ps -a` |
+| Живость процесса (без проверки БД) | `curl http://localhost/api/health/live` (`200` — API отвечает) |
 | Готовность сервиса | `curl http://localhost/api/health/ready` (`200` — всё в порядке, `503` — БД недоступна) |
 | Логи приложения | `docker compose logs -f api` (JSON, по строке на запрос и событие) |
 | Логи Nginx | `docker compose logs -f nginx` (в строке есть `rid=<requestId>`) |
@@ -15,7 +16,7 @@
 | Дашборд | `http://localhost:3001` → Equipment Maintenance Service |
 | Алерты | Grafana → Alerting → Alert rules |
 
-Уровень логов задаётся `LOG_LEVEL` в `.env` (`debug`, `info`, `warn`, `error`); после изменения: `docker compose up -d api`.
+Уровень логов задаётся `LOG_LEVEL` в `.env` (`debug`, `info`, `warn`, `error`); после изменения: `docker compose up -d api`. При `LOG_LEVEL=error` записи `logger.warn` о повторных попытках подключения к БД скрыты.
 
 ### Найти запись в логах по requestId
 

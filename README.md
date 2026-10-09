@@ -260,7 +260,15 @@ Prometheus опрашивает `api:3000/metrics` внутри сети Compose
 
 Приложение отдаёт `http_requests_total` и `http_request_duration_seconds` (метка `route` — шаблон пути, а не реальный URL) и стандартные метрики процесса Node.js.
 
-**Оповещение:** правило `High 5xx error ratio` срабатывает, когда доля ответов 5xx выше 5% в течение 5 минут. Порядок действий при срабатывании — в [docs/RUNBOOK.md](docs/RUNBOOK.md).
+**Оповещение** `High 5xx error ratio`: доля ответов 5xx > 5% в течение 5 минут. Порядок действий (также указан в описании алерта в Grafana):
+
+1. На дашборде найти маршрут с ошибками (панели «4xx / 5xx» и «Интенсивность запросов»).
+2. Взять `requestId` из ответа или логов (`docker compose logs api | grep '"statusCode":5'`).
+3. Проверить `/api/health/ready` и `docker compose ps`.
+4. Ошибки `WEATHER_*` означают недоступность внешнего погодного API, остальные эндпоинты не затронуты.
+5. При `INTERNAL_ERROR` разобрать стек по `requestId`, при необходимости откатить версию.
+
+Подробно: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Тестирование
 
