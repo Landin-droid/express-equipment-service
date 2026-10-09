@@ -27,6 +27,15 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0.05] }
         annotations:
-          summary: "Доля ответов 5xx превышает 5% за последние 5 минут — проверить логи приложения (requestId) и доступность БД"
+          summary: "Доля ответов 5xx выше 5% в течение 5 минут"
+          description: |
+            Порядок действий:
+            1. Дашборд, панели «4xx / 5xx» и «Интенсивность запросов»: определить маршрут с ошибками.
+            2. Взять requestId из ответа клиента или найти: docker compose logs api | grep '"statusCode":5'
+            3. Проверить зависимости: curl http://localhost/api/health/ready и docker compose ps.
+            4. Если ошибки WEATHER_* на /weather, виноват внешний погодный API: остальные маршруты не затронуты, ждать восстановления.
+            5. Если INTERNAL_ERROR, читать стек в логах api по requestId; при необходимости откатить версию.
+            6. После устранения убедиться, что доля 5xx вернулась в норму и алерт стал Normal.
+          runbook_url: https://github.com/Landin-droid/express-equipment-service/blob/main/docs/RUNBOOK.md#2-рост-доли-ответов-5xx
         labels:
           severity: critical

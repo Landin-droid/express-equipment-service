@@ -22,6 +22,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 import * as yaml from "js-yaml";
+import { authenticate } from "./middlewares/auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const openapiPath = path.resolve(__dirname, "../docs/openapi.yaml");
@@ -52,11 +53,14 @@ app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openapiDocument));
 
 app.use("/api", apiRateLimiter);
 
+app.use("/api/auth", authRoutes);
+
+app.use("/api", authenticate);
 app.use("/api/equipment", equipmentRoutes);
 app.use("/api/requests", requestRoutes);
 app.use("/api/sites", siteRoutes);
 app.use("/api/reports", reportRoutes);
-app.use("/api/auth", authRoutes);
+
 
 app.use(notFoundHandler);
 

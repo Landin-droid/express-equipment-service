@@ -7,6 +7,7 @@
 | Что | Где |
 |---|---|
 | Состояние контейнеров | `docker compose ps -a` |
+| Живость процесса (без проверки БД) | `curl http://localhost/api/health/live` (`200` — API отвечает) |
 | Готовность сервиса | `curl http://localhost/api/health/ready` (`200` — всё в порядке, `503` — БД недоступна) |
 | Логи приложения | `docker compose logs -f api` (JSON, по строке на запрос и событие) |
 | Логи Nginx | `docker compose logs -f nginx` (в строке есть `rid=<requestId>`) |
@@ -15,7 +16,7 @@
 | Дашборд | `http://localhost:3001` → Equipment Maintenance Service |
 | Алерты | Grafana → Alerting → Alert rules |
 
-Уровень логов задаётся `LOG_LEVEL` в `.env` (`debug`, `info`, `warn`, `error`); после изменения: `docker compose up -d api`.
+Уровень логов задаётся `LOG_LEVEL` в `.env` (`debug`, `info`, `warn`, `error`); после изменения: `docker compose up -d api`. При `LOG_LEVEL=error` записи `logger.warn` о повторных попытках подключения к БД скрыты.
 
 ### Найти запись в логах по requestId
 
@@ -90,6 +91,15 @@ docker compose logs migrate
 ```
 
 Исправьте причину (чаще всего — недоступная БД, неверный пароль, пустые `SEED_*` переменные) и повторите `docker compose up -d`. Применённые миграции повторно не выполняются.
+
+### 5. 502 Bad Gateway от Nginx
+
+**Признаки:** клиент получает `502`, в логах `api` запросов нет, в логах Nginx `connect() failed ... upstream`.
+
+**Причина и действия:** Nginx не достучался до `api`. Если контейнер `api` был пересоздан, Nginx сам подхватит новый адрес в течение ~5 секунд (разрешение имени при каждом запросе). Если `502` не проходит:
+1. `docker compose ps api` — запущен ли контейнер и healthy ли он, `docker compose logs --tail=50 api`.
+2. `docker compose restart api`, при необходимости `docker compose restart nginx`.
+3. Проверить, что `api` слушает порт 3000: `docker compose exec api wget -qO- http://localhost:3000/api/health/live`.
 
 ## Резервная копия и восстановление БД
 

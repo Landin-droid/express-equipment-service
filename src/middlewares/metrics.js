@@ -4,19 +4,22 @@ import {
 } from "../config/metrics.js";
 
 export function metricsMiddleware(req, res, next) {
-  const endTimer = httpRequestDurationSeconds.startTimer();
+  const startedAt = process.hrtime.bigint();
 
   res.on("finish", () => {
-    // req.route?.path даёт шаблон пути (/api/equipment/:id), а не req.path
-    // с реальным id — иначе у каждой карточки оборудования была бы своя
-    // уникальная метрика, и кардинальность лейблов росла бы неограниченно.
+    const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
     const route = req.route?.path
       ? `${req.baseUrl}${req.route.path}`
       : "unmatched";
     const labels = { method: req.method, route, status_code: res.statusCode };
 
     httpRequestsTotal.inc(labels);
-    endTimer(labels);
+    // requestId = идентификатор из Nginx: он попадёт в exemplar и будет виден на графике
+    httpRequestDurationSeconds.observe({
+      labels,
+      value: durationSeconds,
+      exemplarLabels: { requestId: req.requestId },
+    });
   });
 
   next();

@@ -1,11 +1,11 @@
 import authService from "../services/authService.js";
 
-const isProduction = process.env.NODE_ENV === "production";
+const isDevelopment = process.env.NODE_ENV === "development";
 
 function setRefreshCookie(res, token) {
   res.cookie("refreshToken", token, {
     httpOnly: true,
-    secure: isProduction,
+    secure: !isDevelopment,
     sameSite: "strict",
     maxAge:
       (Number(process.env.REFRESH_TOKEN_TTL_DAYS) || 7) * 24 * 60 * 60 * 1000,
