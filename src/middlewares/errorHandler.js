@@ -11,7 +11,7 @@ export function errorHandler(err, req, res, next) {
     isKnownError || !exposeDetails ? err.message : "Внутренняя ошибка сервера";
 
   if (!isKnownError) {
-    logger.error({ requestId: req.requestId, err }, "Unexpected error");
+    logger.error({ requestId: req.requestId, ip: req.ip, err }, "Unexpected error");
   }
 
   res.status(statusCode).json({

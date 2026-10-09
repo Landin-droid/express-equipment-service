@@ -8,6 +8,7 @@ export function requestLogger(req, res, next) {
     logger.info(
       {
         requestId: req.requestId,
+        ip: req.ip,
         method: req.method,
         path: req.originalUrl,
         statusCode: res.statusCode,
